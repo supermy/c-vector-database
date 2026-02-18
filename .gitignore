@@ -1,0 +1,24 @@
+# 编译产物
+*.o
+*.bin
+
+# 可执行文件
+test_vector_db
+test_vdb
+test_glm5
+benchmark
+
+# 测试文件
+*.test.bin
+test_db.bin
+glm5_test.bin
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 系统文件
+.DS_Store
+Thumbs.db
