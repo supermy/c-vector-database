@@ -7,6 +7,7 @@ test_vector_db
 test_vdb
 test_glm5
 benchmark
+test_qwen35
 
 # 测试文件
 *.test.bin
