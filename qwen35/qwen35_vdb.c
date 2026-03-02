@@ -4,6 +4,60 @@
 #include <math.h>
 #include <stdio.h>
 #include <xmmintrin.h>
+#include <time.h>
+
+// ==================== 对象池实现 ====================
+
+qwen35_object_pool_t *qwen35_pool_create(size_t object_size, size_t capacity) {
+    qwen35_object_pool_t *pool = (qwen35_object_pool_t *)malloc(sizeof(qwen35_object_pool_t));
+    if (!pool) return NULL;
+    
+    pool->objects = (void **)calloc(capacity, sizeof(void *));
+    if (!pool->objects) {
+        free(pool);
+        return NULL;
+    }
+    
+    for (size_t i = 0; i < capacity; i++) {
+        pool->objects[i] = malloc(object_size);
+        if (!pool->objects[i]) {
+            for (size_t j = 0; j < i; j++) {
+                free(pool->objects[j]);
+            }
+            free(pool->objects);
+            free(pool);
+            return NULL;
+        }
+        memset(pool->objects[i], 0, object_size);
+    }
+    
+    pool->size = capacity;
+    pool->capacity = capacity;
+    pool->object_size = object_size;
+    return pool;
+}
+
+void qwen35_pool_destroy(qwen35_object_pool_t *pool) {
+    if (!pool) return;
+    
+    for (size_t i = 0; i < pool->capacity; i++) {
+        if (pool->objects[i]) {
+            free(pool->objects[i]);
+        }
+    }
+    free(pool->objects);
+    free(pool);
+}
+
+void *qwen35_pool_alloc(qwen35_object_pool_t *pool) {
+    if (!pool || pool->size == 0) return NULL;
+    return pool->objects[--pool->size];
+}
+
+void qwen35_pool_free(qwen35_object_pool_t *pool, void *obj) {
+    if (!pool || !obj || pool->size >= pool->capacity) return;
+    pool->objects[pool->size++] = obj;
+}
 
 static uint64_t hash_int(int64_t id) {
     uint64_t h = (uint64_t)id;
@@ -277,17 +331,25 @@ qwen35_vector_db_t *qwen35_db_create(size_t dimensions, qwen35_distance_t dist_t
         return NULL;
     }
     
+    db->entry_pool = qwen35_pool_create(sizeof(qwen35_entry_t), QWEN35_OBJECT_POOL_SIZE);
+    
+    pthread_rwlock_init(&db->lock, NULL);
+    
     db->capacity = QWEN35_DEFAULT_CAPACITY;
     db->size = 0;
     db->dimensions = dimensions;
     db->distance_type = dist_type;
     db->is_normalized = 0;
+    db->enable_stats = 1;
+    memset(&db->stats, 0, sizeof(qwen35_stats_t));
     
     return db;
 }
 
 void qwen35_db_destroy(qwen35_vector_db_t *db) {
     if (!db) return;
+    
+    pthread_rwlock_destroy(&db->lock);
     
     for (size_t i = 0; i < db->size; i++) {
         if (db->entries[i].vector) {
@@ -296,6 +358,10 @@ void qwen35_db_destroy(qwen35_vector_db_t *db) {
         if (db->entries[i].metadata) {
             free(db->entries[i].metadata);
         }
+    }
+    
+    if (db->entry_pool) {
+        qwen35_pool_destroy(db->entry_pool);
     }
     
     hashmap_destroy(db->id_map);
@@ -318,19 +384,31 @@ int qwen35_db_insert(qwen35_vector_db_t *db, int64_t id, const float *vector,
                      void *metadata, size_t metadata_size) {
     if (!db || !vector) return -1;
     
+    struct timespec start, end;
+    if (db->enable_stats) {
+        clock_gettime(CLOCK_MONOTONIC, &start);
+    }
+    
+    pthread_rwlock_wrlock(&db->lock);
+    
     if (hashmap_find(db->id_map, id) != NULL) {
+        pthread_rwlock_unlock(&db->lock);
         return -1;
     }
     
     if (db->size >= db->capacity) {
         if (db_expand(db) != 0) {
+            pthread_rwlock_unlock(&db->lock);
             return -1;
         }
     }
     
     qwen35_entry_t *entry = &db->entries[db->size];
     entry->vector = (float *)malloc(db->dimensions * sizeof(float));
-    if (!entry->vector) return -1;
+    if (!entry->vector) {
+        pthread_rwlock_unlock(&db->lock);
+        return -1;
+    }
     
     memcpy(entry->vector, vector, db->dimensions * sizeof(float));
     
@@ -345,6 +423,7 @@ int qwen35_db_insert(qwen35_vector_db_t *db, int64_t id, const float *vector,
         entry->metadata = malloc(metadata_size);
         if (!entry->metadata) {
             free(entry->vector);
+            pthread_rwlock_unlock(&db->lock);
             return -1;
         }
         memcpy(entry->metadata, metadata, metadata_size);
@@ -357,10 +436,20 @@ int qwen35_db_insert(qwen35_vector_db_t *db, int64_t id, const float *vector,
     if (hashmap_insert(db->id_map, id, db->size) != 0) {
         free(entry->vector);
         if (entry->metadata) free(entry->metadata);
+        pthread_rwlock_unlock(&db->lock);
         return -1;
     }
     
     db->size++;
+    
+    if (db->enable_stats) {
+        clock_gettime(CLOCK_MONOTONIC, &end);
+        double elapsed_us = (end.tv_sec - start.tv_sec) * 1e6 + (end.tv_nsec - start.tv_nsec) / 1e3;
+        db->stats.insert_count++;
+        db->stats.avg_insert_time_us = (db->stats.avg_insert_time_us * (db->stats.insert_count - 1) + elapsed_us) / db->stats.insert_count;
+    }
+    
+    pthread_rwlock_unlock(&db->lock);
     return 0;
 }
 
@@ -628,4 +717,59 @@ qwen35_vector_db_t *qwen35_db_load(const char *filename) {
 
 const char *qwen35_get_version(void) {
     return QWEN35_VDB_VERSION;
+}
+
+// ==================== 统计和监控函数 ====================
+
+void qwen35_db_enable_stats(qwen35_vector_db_t *db, int enable) {
+    if (!db) return;
+    db->enable_stats = enable;
+}
+
+int qwen35_db_get_stats(qwen35_vector_db_t *db, qwen35_stats_t *stats) {
+    if (!db || !stats) return -1;
+    
+    pthread_rwlock_rdlock(&db->lock);
+    memcpy(stats, &db->stats, sizeof(qwen35_stats_t));
+    pthread_rwlock_unlock(&db->lock);
+    
+    return 0;
+}
+
+void qwen35_db_reset_stats(qwen35_vector_db_t *db) {
+    if (!db) return;
+    
+    pthread_rwlock_wrlock(&db->lock);
+    memset(&db->stats, 0, sizeof(qwen35_stats_t));
+    pthread_rwlock_unlock(&db->lock);
+}
+
+void qwen35_db_print_stats(qwen35_vector_db_t *db) {
+    if (!db) return;
+    
+    pthread_rwlock_rdlock(&db->lock);
+    
+    printf("\n=== Qwen35 VectorDB Statistics ===\n");
+    printf("Version: %s\n", QWEN35_VDB_VERSION);
+    printf("Dimensions: %zu\n", db->dimensions);
+    printf("Size: %zu / %zu\n", db->size, db->capacity);
+    printf("Distance Type: %s\n", 
+           db->distance_type == QWEN35_DIST_COSINE ? "COSINE" :
+           db->distance_type == QWEN35_DIST_EUCLIDEAN ? "EUCLIDEAN" : "DOT_PRODUCT");
+    printf("\nOperations:\n");
+    printf("  Insert:  %zu (%.1f µs avg)\n", db->stats.insert_count, db->stats.avg_insert_time_us);
+    printf("  Delete:  %zu\n", db->stats.delete_count);
+    printf("  Search:  %zu (%.3f ms avg)\n", db->stats.search_count, db->stats.avg_search_time_ms);
+    printf("  Get:     %zu\n", db->stats.get_count);
+    printf("\nCache:\n");
+    printf("  Hits:    %zu\n", db->stats.cache_hits);
+    printf("  Misses:  %zu\n", db->stats.cache_misses);
+    if (db->stats.cache_hits + db->stats.cache_misses > 0) {
+        double hit_rate = (double)db->stats.cache_hits / 
+                         (db->stats.cache_hits + db->stats.cache_misses) * 100.0;
+        printf("  Hit Rate: %.2f%%\n", hit_rate);
+    }
+    printf("================================\n\n");
+    
+    pthread_rwlock_unlock(&db->lock);
 }

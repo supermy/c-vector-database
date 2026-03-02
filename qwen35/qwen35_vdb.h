@@ -3,17 +3,19 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <pthread.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#define QWEN35_VDB_VERSION "1.1.0"
+#define QWEN35_VDB_VERSION "1.2.0-production"
 #define QWEN35_DEFAULT_CAPACITY 1024
 #define QWEN35_DEFAULT_HASH_BUCKETS 16384
 #define QWEN35_MAX_DIMENSIONS 4096
 #define QWEN35_CACHE_LINE_SIZE 64
 #define QWEN35_SIMD_WIDTH 16
+#define QWEN35_OBJECT_POOL_SIZE 256
 
 typedef enum {
     QWEN35_DIST_COSINE = 0,
@@ -42,6 +44,24 @@ typedef struct {
 } qwen35_hashmap_t;
 
 typedef struct {
+    void **objects;
+    size_t size;
+    size_t capacity;
+    size_t object_size;
+} qwen35_object_pool_t;
+
+typedef struct {
+    size_t insert_count;
+    size_t delete_count;
+    size_t search_count;
+    size_t get_count;
+    size_t cache_hits;
+    size_t cache_misses;
+    double avg_search_time_ms;
+    double avg_insert_time_us;
+} qwen35_stats_t;
+
+typedef struct {
     qwen35_entry_t *entries;
     size_t size;
     size_t capacity;
@@ -49,6 +69,10 @@ typedef struct {
     size_t dimensions;
     qwen35_distance_t distance_type;
     int is_normalized;
+    pthread_rwlock_t lock;
+    qwen35_object_pool_t *entry_pool;
+    qwen35_stats_t stats;
+    int enable_stats;
 } qwen35_vector_db_t;
 
 qwen35_vector_db_t *qwen35_db_create(size_t dimensions, qwen35_distance_t dist_type);
@@ -69,6 +93,16 @@ float qwen35_cosine_simd(const float *a, const float *b, size_t dim);
 float qwen35_euclidean_simd(const float *a, const float *b, size_t dim);
 void qwen35_normalize_vector(float *vector, size_t dim);
 const char *qwen35_get_version(void);
+
+qwen35_object_pool_t *qwen35_pool_create(size_t object_size, size_t capacity);
+void qwen35_pool_destroy(qwen35_object_pool_t *pool);
+void *qwen35_pool_alloc(qwen35_object_pool_t *pool);
+void qwen35_pool_free(qwen35_object_pool_t *pool, void *obj);
+
+void qwen35_db_enable_stats(qwen35_vector_db_t *db, int enable);
+int qwen35_db_get_stats(qwen35_vector_db_t *db, qwen35_stats_t *stats);
+void qwen35_db_reset_stats(qwen35_vector_db_t *db);
+void qwen35_db_print_stats(qwen35_vector_db_t *db);
 
 #ifdef __cplusplus
 }
