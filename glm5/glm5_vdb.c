@@ -5,13 +5,28 @@
 #include <math.h>
 
 #define INIT_CAP 4096
-#define HASH_BUCKETS 8192
+#define HASH_BUCKETS 16384
+#define MEM_POOL_BLOCK_SIZE (1024 * 1024)
 
 typedef struct HashNode {
     uint64_t key;
     VecEntry* val;
     struct HashNode* next;
 } HashNode;
+
+typedef struct MemPool {
+    uint8_t* block;
+    size_t offset;
+    size_t size;
+    struct MemPool* next;
+} MemPool;
+
+typedef struct Cluster {
+    Vector center;
+    uint64_t* entry_indices;
+    uint64_t count;
+    uint64_t capacity;
+} Cluster;
 
 struct VecDB {
     VecEntry* entries;
@@ -20,7 +35,47 @@ struct VecDB {
     uint32_t dim;
     HashNode** buckets;
     uint64_t bucket_cnt;
+    MemPool* pool;
+    Cluster* clusters;
+    uint32_t num_clusters;
+    int index_built;
 };
+
+static MemPool* pool_create(size_t size) {
+    MemPool* p = (MemPool*)malloc(sizeof(MemPool));
+    if (!p) return NULL;
+    p->block = (uint8_t*)aligned_alloc(GLM5_ALIGN_SIZE, size);
+    if (!p->block) { free(p); return NULL; }
+    p->offset = 0;
+    p->size = size;
+    p->next = NULL;
+    return p;
+}
+
+static void* pool_alloc(MemPool** pool, size_t size) {
+    size = (size + GLM5_ALIGN_SIZE - 1) & ~(GLM5_ALIGN_SIZE - 1);
+    
+    if (!*pool || (*pool)->offset + size > (*pool)->size) {
+        size_t block_size = size > MEM_POOL_BLOCK_SIZE ? size : MEM_POOL_BLOCK_SIZE;
+        MemPool* new_pool = pool_create(block_size);
+        if (!new_pool) return NULL;
+        new_pool->next = *pool;
+        *pool = new_pool;
+    }
+    
+    void* ptr = (*pool)->block + (*pool)->offset;
+    (*pool)->offset += size;
+    return ptr;
+}
+
+static void pool_destroy(MemPool* pool) {
+    while (pool) {
+        MemPool* next = pool->next;
+        free(pool->block);
+        free(pool);
+        pool = next;
+    }
+}
 
 static uint64_t hash64(uint64_t x) {
     x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
@@ -98,6 +153,18 @@ Vector* vec_new(uint32_t dim) {
     return v;
 }
 
+Vector* vec_new_aligned(uint32_t dim) {
+    if (dim == 0) return NULL;
+    Vector* v = (Vector*)aligned_alloc(GLM5_ALIGN_SIZE, sizeof(Vector));
+    if (!v) return NULL;
+    size_t alloc_size = ((dim * sizeof(float)) + GLM5_ALIGN_SIZE - 1) & ~(GLM5_ALIGN_SIZE - 1);
+    v->values = (float*)aligned_alloc(GLM5_ALIGN_SIZE, alloc_size);
+    if (!v->values) { free(v); return NULL; }
+    memset(v->values, 0, dim * sizeof(float));
+    v->dimension = dim;
+    return v;
+}
+
 void vec_free(Vector* v) {
     if (v) { free(v->values); free(v); }
 }
@@ -149,6 +216,21 @@ float vec_cosine(const Vector* a, const Vector* b) {
     return vec_dot(a, b) / (na * nb);
 }
 
+void vec_normalize(Vector* v) {
+    if (!v || !v->values) return;
+    float n = vec_norm(v);
+    if (n > 1e-10f) {
+        for (uint32_t i = 0; i < v->dimension; i++) {
+            v->values[i] /= n;
+        }
+    }
+}
+
+float vec_cosine_normalized(const Vector* a, const Vector* b) {
+    if (!a || !b || a->dimension != b->dimension) return -1.0f;
+    return vec_dot(a, b);
+}
+
 float vec_distance(const Vector* a, const Vector* b, DistanceMetric m) {
     switch (m) {
         case METRIC_COSINE: return 1.0f - vec_cosine(a, b);
@@ -173,6 +255,10 @@ VecDB* vdb_new(uint32_t dim) {
     db->cap = INIT_CAP;
     db->dim = dim;
     db->bucket_cnt = HASH_BUCKETS;
+    db->pool = NULL;
+    db->clusters = NULL;
+    db->num_clusters = 0;
+    db->index_built = 0;
     
     return db;
 }
@@ -191,6 +277,14 @@ void vdb_free(VecDB* db) {
     }
     free(db->entries);
     hash_free(db->buckets, db->bucket_cnt);
+    pool_destroy(db->pool);
+    if (db->clusters) {
+        for (uint32_t i = 0; i < db->num_clusters; i++) {
+            free(db->clusters[i].center.values);
+            free(db->clusters[i].entry_indices);
+        }
+        free(db->clusters);
+    }
     free(db);
 }
 
@@ -417,4 +511,161 @@ void vdb_info(VecDB* db) {
     printf("  Entries: %llu\n", (unsigned long long)db->cnt);
     printf("  Capacity: %llu\n", (unsigned long long)db->cap);
     printf("  Hash Buckets: %llu\n", (unsigned long long)db->bucket_cnt);
+    printf("  Index Built: %s\n", db->index_built ? "yes" : "no");
+    printf("  Clusters: %u\n", db->num_clusters);
+}
+
+QueryResult* vdb_batch_query(VecDB* db, const Vector** queries, uint32_t num_queries, 
+                              const QueryOpts* opts, uint32_t* counts) {
+    if (!db || !queries || num_queries == 0 || !counts) return NULL;
+    
+    QueryResult* all_results = (QueryResult*)malloc(num_queries * sizeof(QueryResult));
+    if (!all_results) return NULL;
+    
+    for (uint32_t i = 0; i < num_queries; i++) {
+        counts[i] = 0;
+        QueryResult* r = vdb_query(db, queries[i], opts, &counts[i]);
+        all_results[i].id = (uint64_t)(uintptr_t)r;
+        all_results[i].dist = (float)counts[i];
+        all_results[i].meta = r;
+        all_results[i].meta_len = counts[i];
+    }
+    
+    return all_results;
+}
+
+void vdb_build_index(VecDB* db, uint32_t num_clusters) {
+    if (!db || db->cnt == 0) return;
+    if (num_clusters == 0) num_clusters = 32;
+    if (num_clusters > db->cnt) num_clusters = (uint32_t)db->cnt;
+    
+    if (db->clusters) {
+        for (uint32_t i = 0; i < db->num_clusters; i++) {
+            free(db->clusters[i].center.values);
+            free(db->clusters[i].entry_indices);
+        }
+        free(db->clusters);
+    }
+    
+    db->num_clusters = num_clusters;
+    db->clusters = (Cluster*)calloc(num_clusters, sizeof(Cluster));
+    if (!db->clusters) return;
+    
+    for (uint32_t i = 0; i < num_clusters; i++) {
+        db->clusters[i].center.dimension = db->dim;
+        db->clusters[i].center.values = (float*)calloc(db->dim, sizeof(float));
+        uint64_t idx = (i * db->cnt) / num_clusters;
+        memcpy(db->clusters[i].center.values, db->entries[idx].vec.values, db->dim * sizeof(float));
+        db->clusters[i].entry_indices = (uint64_t*)malloc(db->cnt * sizeof(uint64_t));
+        db->clusters[i].count = 0;
+        db->clusters[i].capacity = db->cnt;
+    }
+    
+    for (int iter = 0; iter < 10; iter++) {
+        for (uint32_t i = 0; i < num_clusters; i++) {
+            db->clusters[i].count = 0;
+        }
+        
+        for (uint64_t i = 0; i < db->cnt; i++) {
+            float min_dist = 1e9f;
+            uint32_t best = 0;
+            
+            for (uint32_t j = 0; j < num_clusters; j++) {
+                float d = vec_l2(&db->entries[i].vec, &db->clusters[j].center);
+                if (d < min_dist) {
+                    min_dist = d;
+                    best = j;
+                }
+            }
+            
+            if (db->clusters[best].count < db->clusters[best].capacity) {
+                db->clusters[best].entry_indices[db->clusters[best].count++] = i;
+            }
+        }
+        
+        for (uint32_t i = 0; i < num_clusters; i++) {
+            if (db->clusters[i].count > 0) {
+                memset(db->clusters[i].center.values, 0, db->dim * sizeof(float));
+                for (uint64_t j = 0; j < db->clusters[i].count; j++) {
+                    for (uint32_t k = 0; k < db->dim; k++) {
+                        db->clusters[i].center.values[k] += db->entries[db->clusters[i].entry_indices[j]].vec.values[k];
+                    }
+                }
+                for (uint32_t k = 0; k < db->dim; k++) {
+                    db->clusters[i].center.values[k] /= db->clusters[i].count;
+                }
+            }
+        }
+    }
+    
+    db->index_built = 1;
+}
+
+QueryResult* vdb_query_indexed(VecDB* db, const Vector* q, const QueryOpts* opts, uint32_t* n) {
+    if (!db || !q || !n) return NULL;
+    if (!db->index_built) return vdb_query(db, q, opts, n);
+    
+    uint32_t k = opts ? opts->k : 10;
+    DistanceMetric m = opts ? opts->metric : METRIC_COSINE;
+    
+    uint32_t nprobe = db->num_clusters / 4;
+    if (nprobe < 1) nprobe = 1;
+    
+    typedef struct { uint32_t id; float dist; } CDist;
+    CDist* cd = (CDist*)malloc(db->num_clusters * sizeof(CDist));
+    if (!cd) return vdb_query(db, q, opts, n);
+    
+    for (uint32_t i = 0; i < db->num_clusters; i++) {
+        cd[i].id = i;
+        cd[i].dist = vec_l2(q, &db->clusters[i].center);
+    }
+    
+    for (uint32_t i = 0; i < nprobe && i < db->num_clusters; i++) {
+        for (uint32_t j = i + 1; j < db->num_clusters; j++) {
+            if (cd[j].dist < cd[i].dist) {
+                CDist tmp = cd[i]; cd[i] = cd[j]; cd[j] = tmp;
+            }
+        }
+    }
+    
+    uint64_t total = 0;
+    for (uint32_t i = 0; i < nprobe && i < db->num_clusters; i++) {
+        total += db->clusters[cd[i].id].count;
+    }
+    
+    QueryResult* r = (QueryResult*)malloc(total * sizeof(QueryResult));
+    if (!r) { free(cd); return vdb_query(db, q, opts, n); }
+    
+    uint32_t cnt = 0;
+    for (uint32_t i = 0; i < nprobe && i < db->num_clusters; i++) {
+        Cluster* c = &db->clusters[cd[i].id];
+        for (uint64_t j = 0; j < c->count; j++) {
+            VecEntry* e = &db->entries[c->entry_indices[j]];
+            r[cnt].id = e->id;
+            r[cnt].dist = vec_distance(q, &e->vec, m);
+            if (e->meta && e->meta_len > 0) {
+                r[cnt].meta = malloc(e->meta_len);
+                if (r[cnt].meta) {
+                    memcpy(r[cnt].meta, e->meta, e->meta_len);
+                    r[cnt].meta_len = e->meta_len;
+                }
+            } else {
+                r[cnt].meta = NULL;
+                r[cnt].meta_len = 0;
+            }
+            cnt++;
+        }
+    }
+    
+    free(cd);
+    
+    qsort(r, cnt, sizeof(QueryResult), cmp_result);
+    
+    if (cnt > k) {
+        for (uint32_t i = k; i < cnt; i++) free(r[i].meta);
+        cnt = k;
+    }
+    
+    *n = cnt;
+    return r;
 }
