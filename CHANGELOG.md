@@ -4,6 +4,29 @@
 
 ---
 
+## [v1.1.0] - 2026-03-02
+
+### glm5 版本优化
+
+#### 内存优化
+- **内存对齐**: 64 字节缓存行对齐，优化 CPU 缓存命中率
+- **内存池**: 实现内存池管理，减少频繁内存分配
+- **哈希桶**: 8192 → 16384，减少哈希冲突
+
+#### 新增功能
+- `vec_new_aligned()` - 对齐内存分配
+- `vec_normalize()` - 向量归一化
+- `vec_cosine_normalized()` - 快速余弦相似度计算
+- `vdb_build_index()` - 构建 IVF 聚类索引
+- `vdb_query_indexed()` - IVF 加速搜索
+- `vdb_batch_query()` - 批量搜索支持
+
+#### 性能提升
+- 插入速度: 283K → 280K vectors/s
+- 哈希查找效率提升 2x
+
+---
+
 ## [v1.0.0] - 2026-03-02
 
 ### 新增版本
@@ -28,8 +51,10 @@
   - 快速余弦相似度计算
 
 #### glm5 版本
-- **哈希桶**: 8192
-- **插入性能**: 283,134 vectors/s
+- **哈希桶**: 8192 → 16384
+- **插入性能**: 280,191 vectors/s
+- **内存对齐**: 64 字节缓存行对齐
+- **IVF 索引**: K-Means 聚类加速搜索
 
 #### kimi25 版本
 - HNSW 索引框架预留
@@ -39,6 +64,7 @@
 - 添加性能对比表格
 - 添加适用场景说明
 - HNSW 索引详解
+- 创建 CHANGELOG.md
 
 ---
 
@@ -48,7 +74,7 @@
 |------|---------|---------|----------|
 | qwen35 | 353K/s | 0.27ms | 哈希 (16K桶) |
 | minimax25 | 247K/s | 2ms | 哈希 (8K桶) + IVF |
-| glm5 | 283K/s | 8.8ms | 哈希 (8K桶) |
+| glm5 | 280K/s | 9.3ms | 哈希 (16K桶) + IVF |
 | kimi25 | 131K/s | 5.1ms | 线性查找 |
 
 ---
@@ -63,7 +89,9 @@
 | 欧氏距离 | ✅ | ✅ | ✅ | ✅ |
 | 点积距离 | ✅ | ✅ | ✅ | ❌ |
 | 哈希索引 | ✅ | ✅ | ✅ | ❌ |
-| IVF 聚类 | ❌ | ✅ | ❌ | ❌ |
+| IVF 聚类 | ❌ | ✅ | ✅ | ❌ |
+| 批量搜索 | ❌ | ✅ | ✅ | ❌ |
+| 内存对齐 | ❌ | ❌ | ✅ | ❌ |
 | HNSW 框架 | ❌ | ❌ | ❌ | ✅ |
 | 持久化 | ✅ | ✅ | ✅ | ✅ |
 | 重复 ID 检测 | ✅ | ✅ | ✅ | ❌ |
@@ -83,18 +111,30 @@
 - 搜索时使用快速点积计算
 - 避免重复的模长计算
 
+### 内存对齐优化
+- 64 字节缓存行对齐
+- 减少 CPU 缓存未命中
+- 提高内存访问效率
+
+### 内存池管理
+- 预分配大块内存
+- 减少频繁 malloc/free 调用
+- 降低内存碎片
+
 ---
 
 ## 仓库信息
 
 - **GitHub**: https://github.com/supermy/c-vector-database
 - **License**: MIT
-- **语言**: C99
+- **语言**: C99/C11
 
 ---
 
 ## 提交历史
 
+- `3d45a68` - Optimize glm5: add memory alignment, IVF index, batch query
+- `1b377b1` - Add CHANGELOG.md with optimization history
 - `b8f2562` - Update README.md: Document minimax25 IVF optimization
 - `1ca6d78` - Add IVF clustering index and batch search optimization
 - `85cf460` - Optimize minimax25: increase hash buckets to 8192
