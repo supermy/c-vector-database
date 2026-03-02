@@ -8,6 +8,50 @@
 #define INITIAL_CAPACITY 1024
 #define HNSW_MAX_LAYERS 16
 
+// ==================== 对象池实现 ====================
+
+VDBObjectPool* vdb_pool_create(size_t object_size, uint32_t capacity) {
+    VDBObjectPool* pool = (VDBObjectPool*)malloc(sizeof(VDBObjectPool));
+    if (!pool) return NULL;
+    
+    pool->objects = (void**)calloc(capacity, sizeof(void*));
+    if (!pool->objects) { free(pool); return NULL; }
+    
+    for (uint32_t i = 0; i < capacity; i++) {
+        pool->objects[i] = calloc(1, object_size);
+        if (!pool->objects[i]) {
+            for (uint32_t j = 0; j < i; j++) free(pool->objects[j]);
+            free(pool->objects);
+            free(pool);
+            return NULL;
+        }
+    }
+    
+    pool->size = capacity;
+    pool->capacity = capacity;
+    pool->object_size = object_size;
+    return pool;
+}
+
+void vdb_pool_destroy(VDBObjectPool* pool) {
+    if (!pool) return;
+    for (uint32_t i = 0; i < pool->capacity; i++) {
+        if (pool->objects[i]) free(pool->objects[i]);
+    }
+    free(pool->objects);
+    free(pool);
+}
+
+void* vdb_pool_alloc(VDBObjectPool* pool) {
+    if (!pool || pool->size == 0) return NULL;
+    return pool->objects[--pool->size];
+}
+
+void vdb_pool_free(VDBObjectPool* pool, void* obj) {
+    if (!pool || !obj || pool->size >= pool->capacity) return;
+    pool->objects[pool->size++] = obj;
+}
+
 // ==================== 向量操作 ====================
 
 Vector* vector_create(uint32_t dim) {
@@ -109,10 +153,15 @@ VectorDB* vectordb_create(uint32_t dim, bool use_hnsw) {
         return NULL;
     }
     
+    pthread_rwlock_init(&db->lock, NULL);
+    db->obj_pool = vdb_pool_create(sizeof(VectorRecord), VECTOR_DB_OBJECT_POOL_SIZE);
+    
     db->count = 0;
     db->capacity = INITIAL_CAPACITY;
     db->dim = dim;
     db->use_hnsw = use_hnsw;
+    db->enable_stats = true;
+    memset(&db->stats, 0, sizeof(VDBStats));
     
     if (use_hnsw) {
         db->index = hnsw_create(16, 200);
@@ -131,10 +180,14 @@ VectorDB* vectordb_create(uint32_t dim, bool use_hnsw) {
 void vectordb_destroy(VectorDB* db) {
     if (!db) return;
     
+    pthread_rwlock_destroy(&db->lock);
+    
     for (uint64_t i = 0; i < db->count; i++) {
         free(db->records[i].vector.data);
         free(db->records[i].metadata);
     }
+    
+    if (db->obj_pool) vdb_pool_destroy(db->obj_pool);
     
     free(db->records);
     
@@ -367,6 +420,55 @@ void vectordb_print_stats(const VectorDB* db) {
         printf("  HNSW node count: %llu\n", (unsigned long long)db->index->node_count);
         printf("  HNSW max layers: %u\n", db->index->max_layers);
     }
+}
+
+void vectordb_enable_stats(VectorDB* db, bool enable) {
+    if (!db) return;
+    db->enable_stats = enable;
+}
+
+int vectordb_get_stats(VectorDB* db, VDBStats* stats) {
+    if (!db || !stats) return VECTOR_DB_ERROR;
+    pthread_rwlock_rdlock(&db->lock);
+    memcpy(stats, &db->stats, sizeof(VDBStats));
+    pthread_rwlock_unlock(&db->lock);
+    return VECTOR_DB_SUCCESS;
+}
+
+void vectordb_reset_stats(VectorDB* db) {
+    if (!db) return;
+    pthread_rwlock_wrlock(&db->lock);
+    memset(&db->stats, 0, sizeof(VDBStats));
+    pthread_rwlock_unlock(&db->lock);
+}
+
+void vectordb_print_detailed_stats(VectorDB* db) {
+    if (!db) return;
+    pthread_rwlock_rdlock(&db->lock);
+    
+    printf("\n=== Kimi25 VectorDB Statistics ===\n");
+    printf("Version: %s\n", VECTOR_DB_VERSION);
+    printf("Dimension: %u\n", db->dim);
+    printf("Size: %llu / %llu\n", (unsigned long long)db->count, (unsigned long long)db->capacity);
+    printf("Using HNSW: %s\n", db->use_hnsw ? "yes" : "no");
+    
+    if (db->use_hnsw && db->index) {
+        printf("HNSW node count: %llu\n", (unsigned long long)db->index->node_count);
+        printf("HNSW max layers: %u\n", db->index->max_layers);
+    }
+    
+    printf("\nOperations:\n");
+    printf("  Insert:  %llu (%.1f µs avg)\n", (unsigned long long)db->stats.insert_count, db->stats.avg_insert_us);
+    printf("  Delete:  %llu\n", (unsigned long long)db->stats.delete_count);
+    printf("  Search:  %llu (%.3f ms avg)\n", (unsigned long long)db->stats.search_count, db->stats.avg_search_ms);
+    printf("  Get:     %llu\n", (unsigned long long)db->stats.get_count);
+    printf("====================================\n\n");
+    
+    pthread_rwlock_unlock(&db->lock);
+}
+
+const char* vectordb_get_version(void) {
+    return VECTOR_DB_VERSION;
 }
 
 // ==================== HNSW索引实现 ====================

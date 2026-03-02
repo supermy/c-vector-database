@@ -4,16 +4,19 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <pthread.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+#define VECTOR_DB_VERSION "1.3.0-production"
 #define VECTOR_DB_SUCCESS 0
 #define VECTOR_DB_ERROR -1
 #define VECTOR_DB_NOT_FOUND -2
 #define VECTOR_DB_MEMORY_ERROR -3
 #define VECTOR_DB_INVALID_DIM -4
+#define VECTOR_DB_OBJECT_POOL_SIZE 256
 
 // 向量结构
 typedef struct {
@@ -49,6 +52,24 @@ typedef struct {
     uint64_t node_count;
 } HNSWIndex;
 
+// 对象池
+typedef struct {
+    void** objects;
+    uint32_t size;
+    uint32_t capacity;
+    size_t object_size;
+} VDBObjectPool;
+
+// 统计信息
+typedef struct {
+    uint64_t insert_count;
+    uint64_t delete_count;
+    uint64_t search_count;
+    uint64_t get_count;
+    double avg_insert_us;
+    double avg_search_ms;
+} VDBStats;
+
 // 向量数据库
 typedef struct {
     VectorRecord* records;
@@ -57,6 +78,10 @@ typedef struct {
     uint32_t dim;
     HNSWIndex* index;
     bool use_hnsw;
+    pthread_rwlock_t lock;
+    VDBObjectPool* obj_pool;
+    VDBStats stats;
+    bool enable_stats;
 } VectorDB;
 
 // 搜索结果
@@ -116,6 +141,21 @@ SearchResult* hnsw_search(HNSWIndex* index, const Vector* query,
 void vectordb_print_stats(const VectorDB* db);
 int vectordb_save(const VectorDB* db, const char* filename);
 VectorDB* vectordb_load(const char* filename);
+
+// 对象池操作
+VDBObjectPool* vdb_pool_create(size_t object_size, uint32_t capacity);
+void vdb_pool_destroy(VDBObjectPool* pool);
+void* vdb_pool_alloc(VDBObjectPool* pool);
+void vdb_pool_free(VDBObjectPool* pool, void* obj);
+
+// 统计操作
+void vectordb_enable_stats(VectorDB* db, bool enable);
+int vectordb_get_stats(VectorDB* db, VDBStats* stats);
+void vectordb_reset_stats(VectorDB* db);
+void vectordb_print_detailed_stats(VectorDB* db);
+
+// 版本
+const char* vectordb_get_version(void);
 
 #ifdef __cplusplus
 }
