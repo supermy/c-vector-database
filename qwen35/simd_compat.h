@@ -48,9 +48,8 @@
 // Include appropriate SIMD headers
 #ifdef QWEN35_ARCH_X86
     #include <xmmintrin.h>  // SSE
-    #ifdef QWEN35_SIMD_SSE2
-        #include <emmintrin.h>  // SSE2
-    #endif
+    #include <emmintrin.h>  // SSE2
+    #include <pmmintrin.h>  // SSE3
     #ifdef QWEN35_SIMD_SSE42
         #include <smmintrin.h>  // SSE4.2
     #endif
