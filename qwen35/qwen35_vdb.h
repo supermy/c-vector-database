@@ -1,6 +1,9 @@
 #ifndef QWEN35_VDB_H
 #define QWEN35_VDB_H
 
+#define _POSIX_C_SOURCE 200809L
+#define _DEFAULT_SOURCE
+
 #include <stdint.h>
 #include <stddef.h>
 #include <pthread.h>

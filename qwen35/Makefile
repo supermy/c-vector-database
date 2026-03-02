@@ -10,7 +10,8 @@ UNAME_S := $(shell uname -s)
 UNAME_M := $(shell uname -m)
 
 # Base flags
-CFLAGS_BASE = -std=c11 -O3 -Wall -Wextra -lpthread -lm
+CFLAGS_BASE = -std=c11 -O3 -Wall -Wextra
+LDFLAGS_BASE = -lpthread -lm
 
 # Platform-specific flags
 ifeq ($(UNAME_S),Darwin)
@@ -46,7 +47,7 @@ endif
 
 # Combine all flags
 CFLAGS = $(CFLAGS_BASE) $(CFLAGS_PLATFORM) $(CFLAGS_SIMD) $(ARCH_FLAGS)
-LDFLAGS = $(LDFLAGS_PLATFORM) -lpthread -lm
+LDFLAGS = $(LDFLAGS_BASE) $(LDFLAGS_PLATFORM)
 
 TARGET = test_qwen35
 OBJS = qwen35_vdb.o test_qwen35.o

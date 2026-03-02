@@ -1,6 +1,9 @@
 #ifndef VECTOR_DATABASE_H
 #define VECTOR_DATABASE_H
 
+#define _POSIX_C_SOURCE 200809L
+#define _DEFAULT_SOURCE
+
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
