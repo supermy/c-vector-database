@@ -7,7 +7,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
-#include <pthread.h>
+
+// Windows compatibility: MinGW pthread support is limited
+#if defined(_WIN32) || defined(_WIN64)
+    #define GLM5_NO_PTHREAD 1
+#else
+    #include <pthread.h>
+#endif
 
 #ifdef __cplusplus
 extern "C" {

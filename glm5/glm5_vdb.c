@@ -62,7 +62,9 @@ struct VecDB {
     Cluster* clusters;
     uint32_t num_clusters;
     int index_built;
+#ifndef GLM5_NO_PTHREAD
     pthread_rwlock_t lock;
+#endif
     GLM5ObjectPool* obj_pool;
     GLM5Stats stats;
     bool enable_stats;
@@ -323,7 +325,9 @@ VecDB* vdb_new(uint32_t dim) {
     db->buckets = hash_init(HASH_BUCKETS);
     if (!db->buckets) { free(db->entries); free(db); return NULL; }
     
+#ifndef GLM5_NO_PTHREAD
     pthread_rwlock_init(&db->lock, NULL);
+#endif
     db->obj_pool = glm5_pool_create(sizeof(VecEntry), GLM5_OBJECT_POOL_SIZE);
     
     db->cnt = 0;
@@ -350,7 +354,9 @@ static void free_entry(VecEntry* e) {
 void vdb_free(VecDB* db) {
     if (!db) return;
     
+#ifndef GLM5_NO_PTHREAD
     pthread_rwlock_destroy(&db->lock);
+#endif
     
     for (uint64_t i = 0; i < db->cnt; i++) {
         free_entry(&db->entries[i]);
@@ -524,22 +530,32 @@ void vdb_enable_stats(VecDB* db, bool enable) {
 
 int vdb_get_stats(VecDB* db, GLM5Stats* stats) {
     if (!db || !stats) return GLM5_VDB_ERR;
+#ifndef GLM5_NO_PTHREAD
     pthread_rwlock_rdlock(&db->lock);
+#endif
     memcpy(stats, &db->stats, sizeof(GLM5Stats));
+#ifndef GLM5_NO_PTHREAD
     pthread_rwlock_unlock(&db->lock);
+#endif
     return GLM5_VDB_OK;
 }
 
 void vdb_reset_stats(VecDB* db) {
     if (!db) return;
+#ifndef GLM5_NO_PTHREAD
     pthread_rwlock_wrlock(&db->lock);
+#endif
     memset(&db->stats, 0, sizeof(GLM5Stats));
+#ifndef GLM5_NO_PTHREAD
     pthread_rwlock_unlock(&db->lock);
+#endif
 }
 
 void vdb_print_stats(VecDB* db) {
     if (!db) return;
+#ifndef GLM5_NO_PTHREAD
     pthread_rwlock_rdlock(&db->lock);
+#endif
     
     printf("\n=== GLM5 VectorDB Statistics ===\n");
     printf("Version: %s\n", GLM5_VDB_VERSION);
@@ -555,7 +571,9 @@ void vdb_print_stats(VecDB* db) {
     printf("  Get:     %llu\n", (unsigned long long)db->stats.get_count);
     printf("================================\n\n");
     
+#ifndef GLM5_NO_PTHREAD
     pthread_rwlock_unlock(&db->lock);
+#endif
 }
 
 const char* glm5_get_version(void) {
