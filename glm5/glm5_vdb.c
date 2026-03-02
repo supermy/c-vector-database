@@ -4,6 +4,7 @@
 #include <string.h>
 #include <math.h>
 #include <time.h>
+#include <pthread.h>
 
 #define INIT_CAP 4096
 #define HASH_BUCKETS 16384
