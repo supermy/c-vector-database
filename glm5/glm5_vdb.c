@@ -9,6 +9,23 @@
 #define HASH_BUCKETS 16384
 #define MEM_POOL_BLOCK_SIZE (1024 * 1024)
 
+// Cross-platform aligned memory allocation
+static inline void* glm5_aligned_alloc(size_t alignment, size_t size) {
+#if defined(_WIN32) || defined(_WIN64)
+    return _aligned_malloc(size, alignment);
+#else
+    return aligned_alloc(alignment, size);
+#endif
+}
+
+static inline void glm5_aligned_free(void* ptr) {
+#if defined(_WIN32) || defined(_WIN64)
+    _aligned_free(ptr);
+#else
+    free(ptr);
+#endif
+}
+
 typedef struct HashNode {
     uint64_t key;
     VecEntry* val;
@@ -91,7 +108,7 @@ void glm5_pool_free(GLM5ObjectPool* pool, void* obj) {
 static MemPool* pool_create(size_t size) {
     MemPool* p = (MemPool*)malloc(sizeof(MemPool));
     if (!p) return NULL;
-    p->block = (uint8_t*)aligned_alloc(GLM5_ALIGN_SIZE, size);
+    p->block = (uint8_t*)glm5_aligned_alloc(GLM5_ALIGN_SIZE, size);
     if (!p->block) { free(p); return NULL; }
     p->offset = 0;
     p->size = size;
@@ -118,7 +135,7 @@ static void* pool_alloc(MemPool** pool, size_t size) {
 static void pool_destroy(MemPool* pool) {
     while (pool) {
         MemPool* next = pool->next;
-        free(pool->block);
+        glm5_aligned_free(pool->block);
         free(pool);
         pool = next;
     }
@@ -202,10 +219,10 @@ Vector* vec_new(uint32_t dim) {
 
 Vector* vec_new_aligned(uint32_t dim) {
     if (dim == 0) return NULL;
-    Vector* v = (Vector*)aligned_alloc(GLM5_ALIGN_SIZE, sizeof(Vector));
+    Vector* v = (Vector*)glm5_aligned_alloc(GLM5_ALIGN_SIZE, sizeof(Vector));
     if (!v) return NULL;
     size_t alloc_size = ((dim * sizeof(float)) + GLM5_ALIGN_SIZE - 1) & ~(GLM5_ALIGN_SIZE - 1);
-    v->values = (float*)aligned_alloc(GLM5_ALIGN_SIZE, alloc_size);
+    v->values = (float*)glm5_aligned_alloc(GLM5_ALIGN_SIZE, alloc_size);
     if (!v->values) { free(v); return NULL; }
     memset(v->values, 0, dim * sizeof(float));
     v->dimension = dim;
@@ -213,7 +230,10 @@ Vector* vec_new_aligned(uint32_t dim) {
 }
 
 void vec_free(Vector* v) {
-    if (v) { free(v->values); free(v); }
+    if (v) {
+        glm5_aligned_free(v->values);
+        glm5_aligned_free(v);
+    }
 }
 
 int vec_copy_from(Vector* dst, const float* src, uint32_t dim) {
