@@ -4,6 +4,28 @@
 
 ---
 
+## [v1.2.0] - 2026-03-02
+
+### kimi25 版本优化
+
+#### HNSW 算法完整实现
+- **多层贪心搜索**: 从顶层开始逐层搜索，每层找到最近邻作为下一层入口
+- **ef_search 参数**: 控制搜索精度与速度平衡，默认 ef=200
+- **最小堆优化**: 实现 MinHeap 数据结构，O(log n) 插入和弹出
+- **邻居连接建立**: 插入时自动建立双向邻居连接
+
+#### 新增数据结构
+- `MinHeap` - 最小堆，高效维护候选节点集合
+- `NodeDist` - 节点距离对，用于堆操作
+- `hnsw_search_layer()` - 单层贪心搜索函数
+
+#### 性能指标
+- 插入速度: 123K vectors/s
+- 搜索速度: 5ms/query
+- HNSW 实现: 框架 → 完整算法
+
+---
+
 ## [v1.1.0] - 2026-03-02
 
 ### glm5 版本优化
@@ -57,7 +79,9 @@
 - **IVF 索引**: K-Means 聚类加速搜索
 
 #### kimi25 版本
-- HNSW 索引框架预留
+- **HNSW 算法**: 完整多层贪心搜索实现
+- **插入性能**: 123,069 vectors/s
+- **搜索性能**: 5ms/query
 
 ### 文档更新
 - 创建完整 README.md
@@ -75,7 +99,7 @@
 | qwen35 | 353K/s | 0.27ms | 哈希 (16K桶) |
 | minimax25 | 247K/s | 2ms | 哈希 (8K桶) + IVF |
 | glm5 | 280K/s | 9.3ms | 哈希 (16K桶) + IVF |
-| kimi25 | 131K/s | 5.1ms | 线性查找 |
+| kimi25 | 123K/s | 5ms | **HNSW 完整实现** |
 
 ---
 
@@ -92,13 +116,21 @@
 | IVF 聚类 | ❌ | ✅ | ✅ | ❌ |
 | 批量搜索 | ❌ | ✅ | ✅ | ❌ |
 | 内存对齐 | ❌ | ❌ | ✅ | ❌ |
-| HNSW 框架 | ❌ | ❌ | ❌ | ✅ |
+| **HNSW 算法** | ❌ | ❌ | ❌ | **✅** |
+| ef_search 参数 | ❌ | ❌ | ❌ | ✅ |
 | 持久化 | ✅ | ✅ | ✅ | ✅ |
 | 重复 ID 检测 | ✅ | ✅ | ✅ | ❌ |
 
 ---
 
 ## 技术亮点
+
+### HNSW 算法
+参考论文 "Efficient and robust approximate nearest neighbor search using Hierarchical Navigable Small World graphs"：
+- 多层图结构，每层是 navigable small world
+- 贪心搜索从顶层到底层
+- ef 参数控制搜索质量和速度平衡
+- 最小堆优化候选节点管理
 
 ### IVF 聚类索引
 参考 Milvus/Faiss 实现的倒排索引：
@@ -133,6 +165,7 @@
 
 ## 提交历史
 
+- `ee7ecad` - Implement complete HNSW algorithm: multi-layer greedy search, ef_search parameter, min-heap optimization
 - `3d45a68` - Optimize glm5: add memory alignment, IVF index, batch query
 - `1b377b1` - Add CHANGELOG.md with optimization history
 - `b8f2562` - Update README.md: Document minimax25 IVF optimization
