@@ -8,10 +8,12 @@
 extern "C" {
 #endif
 
-#define QWEN35_VDB_VERSION "1.0.0"
+#define QWEN35_VDB_VERSION "1.1.0"
 #define QWEN35_DEFAULT_CAPACITY 1024
 #define QWEN35_DEFAULT_HASH_BUCKETS 16384
 #define QWEN35_MAX_DIMENSIONS 4096
+#define QWEN35_CACHE_LINE_SIZE 64
+#define QWEN35_SIMD_WIDTH 16
 
 typedef enum {
     QWEN35_DIST_COSINE = 0,
@@ -54,6 +56,8 @@ void qwen35_db_destroy(qwen35_vector_db_t *db);
 int qwen35_db_insert(qwen35_vector_db_t *db, int64_t id, const float *vector, void *metadata, size_t metadata_size);
 int qwen35_db_delete(qwen35_vector_db_t *db, int64_t id);
 int qwen35_db_search(qwen35_vector_db_t *db, const float *query, size_t k, int64_t *out_ids, float *out_distances);
+int qwen35_db_search_batch(qwen35_vector_db_t *db, const float **queries, size_t num_queries, 
+                           size_t k, int64_t **out_ids, float **out_distances);
 int qwen35_db_get(qwen35_vector_db_t *db, int64_t id, float *out_vector, void *out_metadata, size_t *out_metadata_size);
 size_t qwen35_db_size(qwen35_vector_db_t *db);
 int qwen35_db_save(qwen35_vector_db_t *db, const char *filename);
@@ -61,6 +65,8 @@ qwen35_vector_db_t *qwen35_db_load(const char *filename);
 float qwen35_cosine_similarity(const float *a, const float *b, size_t dim);
 float qwen35_euclidean_distance(const float *a, const float *b, size_t dim);
 float qwen35_dot_product(const float *a, const float *b, size_t dim);
+float qwen35_cosine_simd(const float *a, const float *b, size_t dim);
+float qwen35_euclidean_simd(const float *a, const float *b, size_t dim);
 void qwen35_normalize_vector(float *vector, size_t dim);
 const char *qwen35_get_version(void);
 

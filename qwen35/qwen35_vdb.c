@@ -3,6 +3,7 @@
 #include <string.h>
 #include <math.h>
 #include <stdio.h>
+#include <xmmintrin.h>
 
 static uint64_t hash_int(int64_t id) {
     uint64_t h = (uint64_t)id;
@@ -12,6 +13,79 @@ static uint64_t hash_int(int64_t id) {
     h *= 0xc4ceb9fe1a85ec53ULL;
     h ^= h >> 33;
     return h;
+}
+
+static float qwen35_dot_product_simd(const float *a, const float *b, size_t dim) {
+    float sum = 0.0f;
+    size_t i = 0;
+    
+    #ifdef __AVX__
+    __m128 sum_vec = _mm_setzero_ps();
+    
+    for (; i + 3 < dim; i += 4) {
+        __m128 va = _mm_loadu_ps(&a[i]);
+        __m128 vb = _mm_loadu_ps(&b[i]);
+        sum_vec = _mm_add_ps(sum_vec, _mm_mul_ps(va, vb));
+    }
+    
+    sum += _mm_cvtss_f32(sum_vec);
+    float tmp[4];
+    _mm_storeu_ps(tmp, sum_vec);
+    sum = tmp[0] + tmp[1] + tmp[2] + tmp[3];
+    #endif
+    
+    for (; i < dim; i++) {
+        sum += a[i] * b[i];
+    }
+    
+    return sum;
+}
+
+static float qwen35_euclidean_distance_simd(const float *a, const float *b, size_t dim) {
+    float sum = 0.0f;
+    size_t i = 0;
+    
+    #ifdef __AVX__
+    __m128 sum_vec = _mm_setzero_ps();
+    
+    for (; i + 3 < dim; i += 4) {
+        __m128 va = _mm_loadu_ps(&a[i]);
+        __m128 vb = _mm_loadu_ps(&b[i]);
+        __m128 diff = _mm_sub_ps(va, vb);
+        sum_vec = _mm_add_ps(sum_vec, _mm_mul_ps(diff, diff));
+    }
+    
+    float tmp[4];
+    _mm_storeu_ps(tmp, sum_vec);
+    sum = tmp[0] + tmp[1] + tmp[2] + tmp[3];
+    #endif
+    
+    for (; i < dim; i++) {
+        float diff = a[i] - b[i];
+        sum += diff * diff;
+    }
+    
+    return sqrtf(sum);
+}
+
+float qwen35_cosine_simd(const float *a, const float *b, size_t dim) {
+    float dot = qwen35_dot_product_simd(a, b, dim);
+    float norm_a = 0.0f, norm_b = 0.0f;
+    
+    for (size_t i = 0; i < dim; i++) {
+        norm_a += a[i] * a[i];
+        norm_b += b[i] * b[i];
+    }
+    
+    if (norm_a == 0.0f || norm_b == 0.0f) {
+        return 0.0f;
+    }
+    
+    return dot / (sqrtf(norm_a) * sqrtf(norm_b));
+}
+
+float qwen35_euclidean_simd(const float *a, const float *b, size_t dim) {
+    return qwen35_euclidean_distance_simd(a, b, dim);
 }
 
 static qwen35_hashmap_t *hashmap_create(size_t num_buckets) {
@@ -357,6 +431,32 @@ int qwen35_db_search(qwen35_vector_db_t *db, const float *query, size_t k,
     if (normalized_query) free(normalized_query);
     
     return (int)result_count;
+}
+
+int qwen35_db_search_batch(qwen35_vector_db_t *db, const float **queries, size_t num_queries, 
+                           size_t k, int64_t **out_ids, float **out_distances) {
+    if (!db || !queries || num_queries == 0 || k == 0) return -1;
+    
+    for (size_t q = 0; q < num_queries; q++) {
+        size_t result_count;
+        int64_t* ids = out_ids ? out_ids[q] : NULL;
+        float* dists = out_distances ? out_distances[q] : NULL;
+        
+        result_count = qwen35_db_search(db, queries[q], k, ids, dists);
+        
+        if (out_ids && out_ids[q]) {
+            for (size_t i = result_count; i < k; i++) {
+                out_ids[q][i] = -1;
+            }
+        }
+        if (out_distances && out_distances[q]) {
+            for (size_t i = result_count; i < k; i++) {
+                out_distances[q][i] = 1e9f;
+            }
+        }
+    }
+    
+    return (int)num_queries;
 }
 
 int qwen35_db_get(qwen35_vector_db_t *db, int64_t id, float *out_vector, 
