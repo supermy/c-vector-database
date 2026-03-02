@@ -6,6 +6,7 @@
 #include <time.h>
 
 #define DEFAULT_CAPACITY 1024
+#define DEFAULT_HASH_BUCKETS 8192
 #define INDEX_NOT_BUILT -1
 
 typedef struct HashMapEntry {
@@ -243,7 +244,7 @@ VectorDatabase* vdb_create(uint32_t dimension) {
         return NULL;
     }
     
-    db->id_map = hashmap_create(DEFAULT_CAPACITY);
+    db->id_map = hashmap_create(DEFAULT_HASH_BUCKETS);
     if (!db->id_map) {
         free(db->entries);
         free(db);
@@ -272,6 +273,22 @@ void vdb_free(VectorDatabase* db) {
     free(db);
 }
 
+static void normalize_vector(Vector* vec) {
+    if (!vec || !vec->data) return;
+    
+    float mag = 0.0f;
+    for (uint32_t i = 0; i < vec->dim; i++) {
+        mag += vec->data[i] * vec->data[i];
+    }
+    
+    if (mag > 0.0f) {
+        mag = sqrtf(mag);
+        for (uint32_t i = 0; i < vec->dim; i++) {
+            vec->data[i] /= mag;
+        }
+    }
+}
+
 int vdb_insert(VectorDatabase* db, uint64_t id, const Vector* vec,
               const void* metadata, uint32_t metadata_size) {
     if (!db || !vec) return VDB_ERROR;
@@ -295,6 +312,10 @@ int vdb_insert(VectorDatabase* db, uint64_t id, const Vector* vec,
     }
     
     memcpy(entry->vector.data, vec->data, vec->dim * sizeof(float));
+    
+    if (db->metric == DISTANCE_COSINE) {
+        normalize_vector(&entry->vector);
+    }
     
     if (metadata && metadata_size > 0) {
         entry->metadata = malloc(metadata_size);
@@ -380,6 +401,16 @@ static int compare_results(const void* a, const void* b) {
     return 0;
 }
 
+static float fast_cosine_similarity(const Vector* a, const Vector* b) {
+    if (!a || !b || a->dim != b->dim) return 0.0f;
+    
+    float dot = 0.0f;
+    for (uint32_t i = 0; i < a->dim; i++) {
+        dot += a->data[i] * b->data[i];
+    }
+    return dot;
+}
+
 SearchResult* vdb_search(VectorDatabase* db, const Vector* query,
                         const SearchOptions* options, uint32_t* result_count) {
     if (!db || !query || !result_count) return NULL;
@@ -397,9 +428,29 @@ SearchResult* vdb_search(VectorDatabase* db, const Vector* query,
     SearchResult* results = (SearchResult*)malloc(db->count * sizeof(SearchResult));
     if (!results) return NULL;
     
+    Vector normalized_query;
+    normalized_query.dim = query->dim;
+    normalized_query.data = NULL;
+    const Vector* search_query = query;
+    
+    if (metric == DISTANCE_COSINE) {
+        normalized_query.data = (float*)malloc(query->dim * sizeof(float));
+        if (normalized_query.data) {
+            memcpy(normalized_query.data, query->data, query->dim * sizeof(float));
+            normalize_vector(&normalized_query);
+            search_query = &normalized_query;
+        }
+    }
+    
     uint32_t count = 0;
     for (uint64_t i = 0; i < db->count; i++) {
-        float dist = vector_distance(query, &db->entries[i].vector, metric);
+        float dist;
+        
+        if (metric == DISTANCE_COSINE && normalized_query.data) {
+            dist = 1.0f - fast_cosine_similarity(search_query, &db->entries[i].vector);
+        } else {
+            dist = vector_distance(query, &db->entries[i].vector, metric);
+        }
         
         if (dist <= max_dist) {
             results[count].id = db->entries[i].id;
@@ -419,6 +470,10 @@ SearchResult* vdb_search(VectorDatabase* db, const Vector* query,
             
             count++;
         }
+    }
+    
+    if (normalized_query.data) {
+        free(normalized_query.data);
     }
     
     qsort(results, count, sizeof(SearchResult), compare_results);
