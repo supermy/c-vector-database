@@ -1,9 +1,9 @@
 #include "qwen35_vdb.h"
+#include "simd_compat.h"
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
 #include <stdio.h>
-#include <xmmintrin.h>
 #include <time.h>
 
 // ==================== 对象池实现 ====================
@@ -69,59 +69,6 @@ static uint64_t hash_int(int64_t id) {
     return h;
 }
 
-static float qwen35_dot_product_simd(const float *a, const float *b, size_t dim) {
-    float sum = 0.0f;
-    size_t i = 0;
-    
-    #ifdef __AVX__
-    __m128 sum_vec = _mm_setzero_ps();
-    
-    for (; i + 3 < dim; i += 4) {
-        __m128 va = _mm_loadu_ps(&a[i]);
-        __m128 vb = _mm_loadu_ps(&b[i]);
-        sum_vec = _mm_add_ps(sum_vec, _mm_mul_ps(va, vb));
-    }
-    
-    sum += _mm_cvtss_f32(sum_vec);
-    float tmp[4];
-    _mm_storeu_ps(tmp, sum_vec);
-    sum = tmp[0] + tmp[1] + tmp[2] + tmp[3];
-    #endif
-    
-    for (; i < dim; i++) {
-        sum += a[i] * b[i];
-    }
-    
-    return sum;
-}
-
-static float qwen35_euclidean_distance_simd(const float *a, const float *b, size_t dim) {
-    float sum = 0.0f;
-    size_t i = 0;
-    
-    #ifdef __AVX__
-    __m128 sum_vec = _mm_setzero_ps();
-    
-    for (; i + 3 < dim; i += 4) {
-        __m128 va = _mm_loadu_ps(&a[i]);
-        __m128 vb = _mm_loadu_ps(&b[i]);
-        __m128 diff = _mm_sub_ps(va, vb);
-        sum_vec = _mm_add_ps(sum_vec, _mm_mul_ps(diff, diff));
-    }
-    
-    float tmp[4];
-    _mm_storeu_ps(tmp, sum_vec);
-    sum = tmp[0] + tmp[1] + tmp[2] + tmp[3];
-    #endif
-    
-    for (; i < dim; i++) {
-        float diff = a[i] - b[i];
-        sum += diff * diff;
-    }
-    
-    return sqrtf(sum);
-}
-
 float qwen35_cosine_simd(const float *a, const float *b, size_t dim) {
     float dot = qwen35_dot_product_simd(a, b, dim);
     float norm_a = 0.0f, norm_b = 0.0f;
@@ -139,7 +86,7 @@ float qwen35_cosine_simd(const float *a, const float *b, size_t dim) {
 }
 
 float qwen35_euclidean_simd(const float *a, const float *b, size_t dim) {
-    return qwen35_euclidean_distance_simd(a, b, dim);
+    return sqrtf(qwen35_euclidean_squared_simd(a, b, dim));
 }
 
 static qwen35_hashmap_t *hashmap_create(size_t num_buckets) {
