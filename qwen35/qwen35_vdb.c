@@ -5,7 +5,6 @@
 #include <math.h>
 #include <stdio.h>
 #include <time.h>
-#include <pthread.h>
 
 // ==================== 对象池实现 ====================
 

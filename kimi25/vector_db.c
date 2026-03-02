@@ -4,7 +4,6 @@
 #include <string.h>
 #include <math.h>
 #include <time.h>
-#include <pthread.h>
 
 #define INITIAL_CAPACITY 1024
 #define HNSW_MAX_LAYERS 16
