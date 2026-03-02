@@ -4,6 +4,7 @@
 #include <string.h>
 #include <math.h>
 #include <time.h>
+#include <pthread.h>
 
 #define DEFAULT_CAPACITY 1024
 #define DEFAULT_HASH_BUCKETS 8192
