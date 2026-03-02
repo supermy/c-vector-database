@@ -280,18 +280,21 @@ vectordb_destroy(db);
 
 ---
 
-## minimax25 版本
+## minimax25 版本 ⭐ (推荐)
 
 ### 特点
 - 哈希索引，O(1) ID查找
 - 支持多种距离度量
 - 重复ID检测
+- **IVF 聚类索引**：近似最近邻加速搜索
+- **向量归一化**：余弦相似度优化
+- **批量搜索**：支持多查询并发
 
 ### 编译运行
 
 ```bash
 cd minimax25
-gcc -O2 -o test_vdb vdb.c test_vdb.c -lm
+gcc -O3 -o test_vdb vdb.c test_vdb.c -lm
 ./test_vdb
 ```
 
@@ -318,10 +321,27 @@ SearchOptions opts = {
 uint32_t count;
 SearchResult* results = vdb_search(db, query, &opts, &count);
 
+// IVF 索引加速搜索
+vdb_build_ivf_index(db, 32);  // 构建 32 个聚类
+results = vdb_search_ivf(db, query, &opts, &count);
+
+// 批量搜索
+Vector* queries[10];
+SearchResult* batch_results = vdb_batch_search(db, queries, 10, &opts, counts);
+
 // 清理
 vdb_free_results(results, count);
 vdb_free(db);
 ```
+
+### 性能优化
+
+| 优化技术 | 说明 |
+|----------|------|
+| 哈希桶 8192 | 减少哈希冲突 |
+| 向量归一化 | 插入时预处理，搜索更快 |
+| IVF 聚类 | 剪枝搜索，减少计算量 |
+| nprobe 参数 | 控制搜索精度与速度平衡 |
 
 ---
 
