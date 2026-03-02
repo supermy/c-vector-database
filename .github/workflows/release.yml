@@ -8,27 +8,37 @@ on:
 
 jobs:
   build-release:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
 
     strategy:
       matrix:
+        os: [ubuntu-latest, macos-14]
         project: [qwen35, minimax25, glm5, kimi25]
 
     steps:
     - uses: actions/checkout@v4
 
-    - name: Install dependencies
+    - name: Install dependencies (Linux)
+      if: runner.os == 'Linux'
       run: |
         sudo apt-get update
         sudo apt-get install -y gcc make
 
-    - name: Build ${{ matrix.project }}
+    - name: Install dependencies (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        brew install make
+
+    - name: Build ${{ matrix.project }} (${{ matrix.os }})
       run: |
         cd ${{ matrix.project }}
         make clean
         make
-        # 静态编译
-        gcc -static -std=c11 -O3 -Wall -Wextra -o test_${{ matrix.project == 'qwen35' && 'qwen35' || matrix.project == 'minimax25' && 'vdb' || matrix.project == 'glm5' && 'glm5' || 'vector_db' }} ${{ matrix.project }}/*.c -lm -lpthread 2>/dev/null || true
+        
+        # 尝试静态编译 (仅 Linux)
+        if [ "$RUNNER_OS" == "Linux" ]; then
+          gcc -static -std=c11 -O3 -Wall -Wextra -o test_${{ matrix.project == 'qwen35' && 'qwen35' || matrix.project == 'minimax25' && 'vdb' || matrix.project == 'glm5' && 'glm5' || 'vector_db' }} ${{ matrix.project }}/*.c -lm -lpthread 2>/dev/null || true
+        fi
 
     - name: Package binary
       run: |
@@ -36,13 +46,20 @@ jobs:
         cd ${{ matrix.project }}
         cp test_* ../release/
         cd ../release
-        tar -czf ${{ matrix.project }}-linux-x64.tar.gz test_*
+        
+        # 根据操作系统打包
+        if [ "$RUNNER_OS" == "Linux" ]; then
+          tar -czf ${{ matrix.project }}-linux-x64.tar.gz test_*
+        elif [ "$RUNNER_OS" == "macOS" ]; then
+          tar -czf ${{ matrix.project }}-macos-arm64.tar.gz test_*
+        fi
+        
         rm -f test_*
 
     - name: Upload release artifact
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ matrix.project }}-release
+        name: ${{ matrix.project }}-release-${{ matrix.os }}
         path: release/*.tar.gz
         retention-days: 5
 

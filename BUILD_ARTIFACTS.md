@@ -13,10 +13,14 @@
 4. 下载对应的构建产物
 
 **产物内容：**
-- `qwen35-binary-*` - qwen35 测试程序
-- `minimax25-binary-*` - minimax25 测试程序
-- `glm5-binary-*` - glm5 测试程序
-- `kimi25-binary-*` - kimi25 测试程序
+- `qwen35-binary-ubuntu-latest-*` - qwen35 测试程序 (Linux)
+- `qwen35-binary-macos-14-*` - qwen35 测试程序 (macOS)
+- `minimax25-binary-ubuntu-latest-*` - minimax25 测试程序 (Linux)
+- `minimax25-binary-macos-14-*` - minimax25 测试程序 (macOS)
+- `glm5-binary-ubuntu-latest-*` - glm5 测试程序 (Linux)
+- `glm5-binary-macos-14-*` - glm5 测试程序 (macOS)
+- `kimi25-binary-ubuntu-latest-*` - kimi25 测试程序 (Linux)
+- `kimi25-binary-macos-14-*` - kimi25 测试程序 (macOS)
 
 ### 永久构建产物 (GitHub Releases)
 
@@ -28,11 +32,22 @@
 3. 下载 Assets 中的压缩包
 
 **产物内容：**
-- `qwen35-linux-x64.tar.gz`
-- `minimax25-linux-x64.tar.gz`
-- `glm5-linux-x64.tar.gz`
-- `kimi25-linux-x64.tar.gz`
+- `qwen35-linux-x64.tar.gz` (Linux 静态编译)
+- `qwen35-macos-arm64.tar.gz` (macOS 编译)
+- `minimax25-linux-x64.tar.gz` (Linux 静态编译)
+- `minimax25-macos-arm64.tar.gz` (macOS 编译)
+- `glm5-linux-x64.tar.gz` (Linux 静态编译)
+- `glm5-macos-arm64.tar.gz` (macOS 编译)
+- `kimi25-linux-x64.tar.gz` (Linux 静态编译)
+- `kimi25-macos-arm64.tar.gz` (macOS 编译)
 - `SHA256SUMS.txt` (校验和文件)
+
+### 多平台支持
+
+| 平台 | 架构 | 编译方式 | 依赖 |
+|------|------|----------|------|
+| Linux | x64 | 静态编译 | 无外部依赖 |
+| macOS | ARM64 | 动态编译 | 系统库依赖 |
 
 ## 触发 Release 构建
 
@@ -76,10 +91,15 @@ cd qwen35 && make
 - 可用于验证功能
 - 需要动态链接库
 
-### 静态编译版本 (Release)
+### 静态编译版本 (Linux Release)
 - 完全静态链接
 - 无外部依赖
 - 可直接在任何 Linux x64 系统运行
+
+### 动态编译版本 (macOS Release)
+- 动态链接系统库
+- 适用于 macOS ARM64 系统
+- 可能需要安装额外的运行时依赖
 
 ## 校验和验证
 
@@ -89,16 +109,23 @@ cd qwen35 && make
 # 下载 SHA256SUMS.txt
 # 下载对应的 tar.gz 文件
 
-# 验证
+# 验证 (Linux)
 sha256sum -c SHA256SUMS.txt
+
+# 验证 (macOS)
+shasum -a 256 -c SHA256SUMS.txt
 ```
 
 预期输出：
 ```
 qwen35-linux-x64.tar.gz: OK
+qwen35-macos-arm64.tar.gz: OK
 minimax25-linux-x64.tar.gz: OK
+minimax25-macos-arm64.tar.gz: OK
 glm5-linux-x64.tar.gz: OK
+glm5-macos-arm64.tar.gz: OK
 kimi25-linux-x64.tar.gz: OK
+kimi25-macos-arm64.tar.gz: OK
 ```
 
 ## 存储策略对比
@@ -115,6 +142,7 @@ kimi25-linux-x64.tar.gz: OK
 2. **存储空间**: GitHub 为每个仓库提供 500MB 的 Actions 存储空间
 3. **清理旧产物**: 定期清理旧的构建产物以释放空间
 4. **Release 永久**: GitHub Releases 的附件永久保存，除非手动删除
+5. **平台兼容性**: Linux 静态编译产物可在大多数 Linux 系统运行，macOS 产物需在相应平台上运行
 
 ## 相关链接
 
