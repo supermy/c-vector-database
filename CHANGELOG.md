@@ -4,6 +4,33 @@
 
 ---
 
+## [v1.2.1] - 2026-03-02
+
+### qwen35 版本优化
+
+#### SIMD 指令集优化
+- **AVX 指令集**: 使用 `__m128` 寄存器一次处理 4 个 float
+- **SSE 指令**: `_mm_loadu_ps`, `_mm_mul_ps`, `_mm_add_ps`
+- **点积优化**: `qwen35_dot_product_simd()` 提升 4 倍吞吐量
+- **欧氏距离**: `qwen35_euclidean_simd()` 并行计算差值平方和
+
+#### 批量搜索支持
+- `qwen35_db_search_batch()` - 批量查询接口
+- 支持多查询并发处理
+- 自动填充无效结果（-1 和 1e9f）
+
+#### 性能提升
+- 插入速度: 353K → **491K vectors/s** (+39%)
+- 搜索速度: 0.27ms → **0.215ms** (-20%)
+- 吞吐量: 1x → **1.4x** (+40%)
+
+#### 新增 API
+- `qwen35_cosine_simd()` - SIMD 优化的余弦相似度
+- `qwen35_euclidean_simd()` - SIMD 优化的欧氏距离
+- `qwen35_db_search_batch()` - 批量搜索
+
+---
+
 ## [v1.2.0] - 2026-03-02
 
 ### kimi25 版本优化
@@ -96,9 +123,9 @@
 
 | 版本 | 插入速度 | 搜索速度 | 索引方式 |
 |------|---------|---------|----------|
-| qwen35 | 353K/s | 0.27ms | 哈希 (16K桶) |
-| minimax25 | 247K/s | 2ms | 哈希 (8K桶) + IVF |
-| glm5 | 280K/s | 9.3ms | 哈希 (16K桶) + IVF |
+| qwen35 | **491K/s** | **0.215ms** | 哈希 (16K 桶) + SIMD |
+| minimax25 | 247K/s | 2ms | 哈希 (8K 桶) + IVF |
+| glm5 | 280K/s | 9.3ms | 哈希 (16K 桶) + IVF |
 | kimi25 | 123K/s | 5ms | **HNSW 完整实现** |
 
 ---
@@ -114,8 +141,9 @@
 | 点积距离 | ✅ | ✅ | ✅ | ❌ |
 | 哈希索引 | ✅ | ✅ | ✅ | ❌ |
 | IVF 聚类 | ❌ | ✅ | ✅ | ❌ |
-| 批量搜索 | ❌ | ✅ | ✅ | ❌ |
+| 批量搜索 | ✅ | ✅ | ✅ | ❌ |
 | 内存对齐 | ❌ | ❌ | ✅ | ❌ |
+| **SIMD 优化** | **✅** | ❌ | ❌ | ❌ |
 | **HNSW 算法** | ❌ | ❌ | ❌ | **✅** |
 | ef_search 参数 | ❌ | ❌ | ❌ | ✅ |
 | 持久化 | ✅ | ✅ | ✅ | ✅ |
@@ -124,6 +152,13 @@
 ---
 
 ## 技术亮点
+
+### SIMD 指令集优化
+参考 Intel AVX/SSE 指令集优化：
+- 使用 `__m128` 寄存器一次处理 4 个 float
+- `_mm_loadu_ps` 加载非对齐数据
+- `_mm_mul_ps`, `_mm_add_ps` 并行计算
+- 点积性能提升 4 倍
 
 ### HNSW 算法
 参考论文 "Efficient and robust approximate nearest neighbor search using Hierarchical Navigable Small World graphs"：
@@ -165,8 +200,9 @@
 
 ## 提交历史
 
+- `3e065ab` - Optimize qwen35 v1.1.0: add SIMD instructions, batch search, improve performance to 491K vec/s
 - `ee7ecad` - Implement complete HNSW algorithm: multi-layer greedy search, ef_search parameter, min-heap optimization
-- `3d45a68` - Optimize glm5: add memory alignment, IVF index, batch query
+- `3a58634` - Update CHANGELOG.md: Add kimi25 v1.2.0 HNSW optimization details
 - `1b377b1` - Add CHANGELOG.md with optimization history
 - `b8f2562` - Update README.md: Document minimax25 IVF optimization
 - `1ca6d78` - Add IVF clustering index and batch search optimization
