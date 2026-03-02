@@ -81,6 +81,15 @@ void vdb_stats(const VectorDatabase* db);
 int vdb_save(const VectorDatabase* db, const char* filename);
 VectorDatabase* vdb_load(const char* filename);
 
+int vdb_build_ivf_index(VectorDatabase* db, uint32_t num_clusters);
+SearchResult* vdb_search_ivf(VectorDatabase* db, const Vector* query,
+                             const SearchOptions* options, uint32_t* result_count);
+void vdb_free_ivf_index(VectorDatabase* db);
+
+SearchResult* vdb_batch_search(VectorDatabase* db, const Vector** queries,
+                                uint32_t num_queries, const SearchOptions* options,
+                                uint32_t* result_counts);
+
 #ifdef __cplusplus
 }
 #endif

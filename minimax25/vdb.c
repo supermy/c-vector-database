@@ -7,6 +7,7 @@
 
 #define DEFAULT_CAPACITY 1024
 #define DEFAULT_HASH_BUCKETS 8192
+#define DEFAULT_NUM_CLUSTERS 32
 #define INDEX_NOT_BUILT -1
 
 typedef struct HashMapEntry {
@@ -21,6 +22,12 @@ typedef struct {
     uint64_t capacity;
 } HashMap;
 
+typedef struct {
+    uint64_t* entry_ids;
+    uint64_t count;
+    uint64_t capacity;
+} IVFCluster;
+
 struct VectorDatabase {
     VectorEntry* entries;
     uint64_t count;
@@ -29,6 +36,10 @@ struct VectorDatabase {
     bool use_index;
     HashMap* id_map;
     DistanceMetric metric;
+    bool ivf_built;
+    uint32_t num_clusters;
+    Vector* cluster_centers;
+    IVFCluster* clusters;
 };
 
 static uint64_t hash_uint64(uint64_t x) {
@@ -256,12 +267,18 @@ VectorDatabase* vdb_create(uint32_t dimension) {
     db->dimension = dimension;
     db->use_index = false;
     db->metric = DISTANCE_COSINE;
+    db->ivf_built = false;
+    db->num_clusters = 0;
+    db->cluster_centers = NULL;
+    db->clusters = NULL;
     
     return db;
 }
 
 void vdb_free(VectorDatabase* db) {
     if (!db) return;
+    
+    vdb_free_ivf_index(db);
     
     for (uint64_t i = 0; i < db->count; i++) {
         free(db->entries[i].vector.data);
@@ -271,6 +288,29 @@ void vdb_free(VectorDatabase* db) {
     free(db->entries);
     hashmap_destroy(db->id_map);
     free(db);
+}
+
+void vdb_free_ivf_index(VectorDatabase* db) {
+    if (!db) return;
+    
+    if (db->clusters) {
+        for (uint32_t i = 0; i < db->num_clusters; i++) {
+            free(db->clusters[i].entry_ids);
+        }
+        free(db->clusters);
+        db->clusters = NULL;
+    }
+    
+    if (db->cluster_centers) {
+        for (uint32_t i = 0; i < db->num_clusters; i++) {
+            free(db->cluster_centers[i].data);
+        }
+        free(db->cluster_centers);
+        db->cluster_centers = NULL;
+    }
+    
+    db->ivf_built = false;
+    db->num_clusters = 0;
 }
 
 static void normalize_vector(Vector* vec) {
@@ -608,4 +648,249 @@ VectorDatabase* vdb_load(const char* filename) {
     
     fclose(fp);
     return db;
+}
+
+static void kmeans_init_centroids(VectorDatabase* db, uint32_t k, Vector* centroids) {
+    if (!db || k == 0 || !centroids) return;
+    
+    srand((unsigned int)time(NULL));
+    
+    for (uint32_t i = 0; i < k; i++) {
+        uint64_t idx = rand() % db->count;
+        memcpy(centroids[i].data, db->entries[idx].vector.data,
+               db->dimension * sizeof(float));
+    }
+}
+
+static void kmeans_assign(VectorDatabase* db, uint32_t k, Vector* centroids, uint32_t* assignments) {
+    if (!db || k == 0 || !centroids || !assignments) return;
+    
+    for (uint64_t i = 0; i < db->count; i++) {
+        float min_dist = 1e9f;
+        uint32_t best_cluster = 0;
+        
+        for (uint32_t j = 0; j < k; j++) {
+            float dist = vector_distance(&db->entries[i].vector, &centroids[j], DISTANCE_EUCLIDEAN);
+            if (dist < min_dist) {
+                min_dist = dist;
+                best_cluster = j;
+            }
+        }
+        assignments[i] = best_cluster;
+    }
+}
+
+static void kmeans_update_centroids(VectorDatabase* db, uint32_t k, Vector* centroids, uint32_t* assignments) {
+    if (!db || k == 0 || !centroids || !assignments) return;
+    
+    uint32_t* counts = (uint32_t*)calloc(k, sizeof(uint32_t));
+    if (!counts) return;
+    
+    for (uint32_t i = 0; i < k; i++) {
+        free(centroids[i].data);
+        centroids[i].data = (float*)calloc(db->dimension, sizeof(float));
+    }
+    
+    for (uint64_t i = 0; i < db->count; i++) {
+        uint32_t cluster = assignments[i];
+        for (uint32_t j = 0; j < db->dimension; j++) {
+            centroids[cluster].data[j] += db->entries[i].vector.data[j];
+        }
+        counts[cluster]++;
+    }
+    
+    for (uint32_t i = 0; i < k; i++) {
+        if (counts[i] > 0) {
+            for (uint32_t j = 0; j < db->dimension; j++) {
+                centroids[i].data[j] /= counts[i];
+            }
+        }
+    }
+    
+    free(counts);
+}
+
+static float kmeans_compute_cost(VectorDatabase* db, uint32_t k, Vector* centroids, uint32_t* assignments) {
+    if (!db || k == 0 || !centroids || !assignments) return 0.0f;
+    
+    float total_cost = 0.0f;
+    for (uint64_t i = 0; i < db->count; i++) {
+        uint32_t cluster = assignments[i];
+        float dist = vector_distance(&db->entries[i].vector, &centroids[cluster], DISTANCE_EUCLIDEAN);
+        total_cost += dist * dist;
+    }
+    return total_cost / db->count;
+}
+
+int vdb_build_ivf_index(VectorDatabase* db, uint32_t num_clusters) {
+    if (!db || db->count == 0) return VDB_ERROR;
+    if (num_clusters == 0) num_clusters = DEFAULT_NUM_CLUSTERS;
+    if (num_clusters > db->count) num_clusters = (uint32_t)db->count;
+    
+    vdb_free_ivf_index(db);
+    
+    db->num_clusters = num_clusters;
+    db->cluster_centers = (Vector*)malloc(num_clusters * sizeof(Vector));
+    if (!db->cluster_centers) return VDB_OUT_OF_MEMORY;
+    
+    for (uint32_t i = 0; i < num_clusters; i++) {
+        db->cluster_centers[i].dim = db->dimension;
+        db->cluster_centers[i].data = (float*)calloc(db->dimension, sizeof(float));
+        if (!db->cluster_centers[i].data) {
+            vdb_free_ivf_index(db);
+            return VDB_OUT_OF_MEMORY;
+        }
+    }
+    
+    db->clusters = (IVFCluster*)malloc(num_clusters * sizeof(IVFCluster));
+    if (!db->clusters) {
+        vdb_free_ivf_index(db);
+        return VDB_OUT_OF_MEMORY;
+    }
+    
+    for (uint32_t i = 0; i < num_clusters; i++) {
+        db->clusters[i].entry_ids = (uint64_t*)malloc(db->count * sizeof(uint64_t));
+        if (!db->clusters[i].entry_ids) {
+            vdb_free_ivf_index(db);
+            return VDB_OUT_OF_MEMORY;
+        }
+        db->clusters[i].count = 0;
+        db->clusters[i].capacity = db->count;
+    }
+    
+    uint32_t* assignments = (uint32_t*)malloc(db->count * sizeof(uint32_t));
+    if (!assignments) {
+        vdb_free_ivf_index(db);
+        return VDB_OUT_OF_MEMORY;
+    }
+    
+    kmeans_init_centroids(db, num_clusters, db->cluster_centers);
+    
+    for (int iter = 0; iter < 10; iter++) {
+        kmeans_assign(db, num_clusters, db->cluster_centers, assignments);
+        kmeans_update_centroids(db, num_clusters, db->cluster_centers, assignments);
+    }
+    
+    for (uint64_t i = 0; i < db->count; i++) {
+        uint32_t cluster = assignments[i];
+        db->clusters[cluster].entry_ids[db->clusters[cluster].count++] = i;
+    }
+    
+    free(assignments);
+    db->ivf_built = true;
+    
+    return VDB_OK;
+}
+
+SearchResult* vdb_search_ivf(VectorDatabase* db, const Vector* query,
+                             const SearchOptions* options, uint32_t* result_count) {
+    if (!db || !query || !result_count) return NULL;
+    if (!db->ivf_built) {
+        return vdb_search(db, query, options, result_count);
+    }
+    
+    uint32_t top_k = options ? options->top_k : 10;
+    uint32_t nprobe = db->num_clusters / 4;
+    if (nprobe < 1) nprobe = 1;
+    
+    typedef struct {
+        uint32_t cluster_id;
+        float distance;
+    } ClusterDist;
+    
+    ClusterDist* cluster_dists = (ClusterDist*)malloc(db->num_clusters * sizeof(ClusterDist));
+    if (!cluster_dists) return vdb_search(db, query, options, result_count);
+    
+    for (uint32_t i = 0; i < db->num_clusters; i++) {
+        cluster_dists[i].cluster_id = i;
+        cluster_dists[i].distance = vector_distance(query, &db->cluster_centers[i], DISTANCE_EUCLIDEAN);
+    }
+    
+    for (uint32_t i = 0; i < nprobe; i++) {
+        for (uint32_t j = i + 1; j < db->num_clusters; j++) {
+            if (cluster_dists[j].distance < cluster_dists[i].distance) {
+                ClusterDist tmp = cluster_dists[i];
+                cluster_dists[i] = cluster_dists[j];
+                cluster_dists[j] = tmp;
+            }
+        }
+    }
+    
+    SearchResult* results = NULL;
+    uint64_t total_candidates = 0;
+    for (uint32_t i = 0; i < nprobe && i < db->num_clusters; i++) {
+        total_candidates += db->clusters[cluster_dists[i].cluster_id].count;
+    }
+    
+    if (total_candidates > 0) {
+        results = (SearchResult*)malloc(total_candidates * sizeof(SearchResult));
+    }
+    
+    if (!results) {
+        free(cluster_dists);
+        return vdb_search(db, query, options, result_count);
+    }
+    
+    uint32_t count = 0;
+    for (uint32_t i = 0; i < nprobe && i < db->num_clusters; i++) {
+        uint32_t cluster_id = cluster_dists[i].cluster_id;
+        IVFCluster* cluster = &db->clusters[cluster_id];
+        
+        for (uint64_t j = 0; j < cluster->count; j++) {
+            uint64_t entry_idx = cluster->entry_ids[j];
+            VectorEntry* entry = &db->entries[entry_idx];
+            
+            results[count].id = entry->id;
+            results[count].distance = vector_distance(query, &entry->vector, 
+                                                      options ? options->metric : DISTANCE_COSINE);
+            
+            if (entry->metadata && entry->metadata_size > 0) {
+                results[count].metadata = malloc(entry->metadata_size);
+                if (results[count].metadata) {
+                    memcpy(results[count].metadata, entry->metadata, entry->metadata_size);
+                    results[count].metadata_size = entry->metadata_size;
+                }
+            } else {
+                results[count].metadata = NULL;
+                results[count].metadata_size = 0;
+            }
+            count++;
+        }
+    }
+    
+    free(cluster_dists);
+    
+    if (count > top_k) {
+        qsort(results, count, sizeof(SearchResult), compare_results);
+        for (uint32_t i = top_k; i < count; i++) {
+            free(results[i].metadata);
+        }
+        count = top_k;
+    } else if (count > 0) {
+        qsort(results, count, sizeof(SearchResult), compare_results);
+    }
+    
+    *result_count = count;
+    return results;
+}
+
+SearchResult* vdb_batch_search(VectorDatabase* db, const Vector** queries,
+                                uint32_t num_queries, const SearchOptions* options,
+                                uint32_t* result_counts) {
+    if (!db || !queries || num_queries == 0 || !result_counts) return NULL;
+    
+    SearchResult* all_results = (SearchResult*)malloc(num_queries * sizeof(SearchResult));
+    if (!all_results) return NULL;
+    
+    for (uint32_t q = 0; q < num_queries; q++) {
+        uint32_t count = 0;
+        SearchResult* results = vdb_search(db, queries[q], options, &count);
+        
+        all_results[q].id = (uint64_t)(intptr_t)results;
+        all_results[q].distance = (float)count;
+        all_results[q].metadata = results;
+        all_results[q].metadata_size = count;
+    }
+    
+    return all_results;
 }
