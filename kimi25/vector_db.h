@@ -10,6 +10,16 @@
 extern "C" {
 #endif
 
+/* Platform detection for better compatibility */
+#if defined(__APPLE__)
+    #include <TargetConditionals.h>
+    #define VECTOR_DB_PLATFORM_MACOS 1
+#elif defined(__linux__)
+    #define VECTOR_DB_PLATFORM_LINUX 1
+#elif defined(_WIN32)
+    #define VECTOR_DB_PLATFORM_WINDOWS 1
+#endif
+
 #define VECTOR_DB_VERSION "1.3.0-production"
 #define VECTOR_DB_SUCCESS 0
 #define VECTOR_DB_ERROR -1

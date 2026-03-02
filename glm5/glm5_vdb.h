@@ -10,6 +10,16 @@
 extern "C" {
 #endif
 
+/* Platform detection for better compatibility */
+#if defined(__APPLE__)
+    #include <TargetConditionals.h>
+    #define GLM5_PLATFORM_MACOS 1
+#elif defined(__linux__)
+    #define GLM5_PLATFORM_LINUX 1
+#elif defined(_WIN32)
+    #define GLM5_PLATFORM_WINDOWS 1
+#endif
+
 #define GLM5_VDB_VERSION "1.2.0-production"
 #define GLM5_VDB_OK                0
 #define GLM5_VDB_ERR              -1

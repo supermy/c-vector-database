@@ -10,6 +10,16 @@
 extern "C" {
 #endif
 
+/* Platform detection for better compatibility */
+#if defined(__APPLE__)
+    #include <TargetConditionals.h>
+    #define VDB_PLATFORM_MACOS 1
+#elif defined(__linux__)
+    #define VDB_PLATFORM_LINUX 1
+#elif defined(_WIN32)
+    #define VDB_PLATFORM_WINDOWS 1
+#endif
+
 #define VDB_VERSION "1.3.0-production"
 #define VDB_OK              0
 #define VDB_ERROR           -1
