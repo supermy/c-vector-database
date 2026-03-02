@@ -9,6 +9,16 @@
 extern "C" {
 #endif
 
+/* Platform detection for better compatibility */
+#if defined(__APPLE__)
+    #include <TargetConditionals.h>
+    #define QWEN35_PLATFORM_MACOS 1
+#elif defined(__linux__)
+    #define QWEN35_PLATFORM_LINUX 1
+#elif defined(_WIN32)
+    #define QWEN35_PLATFORM_WINDOWS 1
+#endif
+
 #define QWEN35_VDB_VERSION "1.2.0-production"
 #define QWEN35_DEFAULT_CAPACITY 1024
 #define QWEN35_DEFAULT_HASH_BUCKETS 16384
