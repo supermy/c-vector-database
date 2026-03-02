@@ -1,9 +1,9 @@
-# Makefile for kimi25 Vector Database (HNSW)
+# Makefile for glm5 Vector Database
 
 CC = gcc
 CFLAGS = -std=c11 -O3 -Wall -Wextra -lpthread -lm
-TARGET = test_vector_db
-OBJS = vector_db.o test_vector_db.o
+TARGET = test_glm5
+OBJS = glm5_vdb.o test_glm5.o
 
 .PHONY: all clean test
 

@@ -1,0 +1,69 @@
+name: C/C++ CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        project: [qwen35, minimax25, glm5, kimi25]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc make
+
+    - name: Build ${{ matrix.project }}
+      run: |
+        cd ${{ matrix.project }}
+        make clean || true
+        make
+
+    - name: Test ${{ matrix.project }}
+      run: |
+        cd ${{ matrix.project }}
+        ./test_${{ matrix.project == 'qwen35' && 'qwen35' || matrix.project == 'minimax25' && 'vdb' || matrix.project == 'glm5' && 'glm5' || 'vector_db' }}
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.project }}-binary
+        path: ${{ matrix.project }}/test_*
+        retention-days: 7
+
+  build-all:
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Build all projects
+      run: |
+        echo "Building all vector database projects..."
+        for project in qwen35 minimax25 glm5 kimi25; do
+          echo "Building $project..."
+          cd $project && make && cd ..
+        done
+        echo "All projects built successfully!"
+
+    - name: Summary
+      run: |
+        echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
+        echo "✅ All four vector database projects built successfully!" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Project | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|---------|--------|" >> $GITHUB_STEP_SUMMARY
+        echo "| qwen35 | ✅ |" >> $GITHUB_STEP_SUMMARY
+        echo "| minimax25 | ✅ |" >> $GITHUB_STEP_SUMMARY
+        echo "| glm5 | ✅ |" >> $GITHUB_STEP_SUMMARY
+        echo "| kimi25 | ✅ |" >> $GITHUB_STEP_SUMMARY

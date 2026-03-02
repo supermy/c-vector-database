@@ -1,9 +1,9 @@
-# Makefile for kimi25 Vector Database (HNSW)
+# Makefile for minimax25 Vector Database
 
 CC = gcc
 CFLAGS = -std=c11 -O3 -Wall -Wextra -lpthread -lm
-TARGET = test_vector_db
-OBJS = vector_db.o test_vector_db.o
+TARGET = test_vdb
+OBJS = vdb.o test_vdb.o
 
 .PHONY: all clean test
 

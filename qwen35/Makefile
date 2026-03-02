@@ -1,9 +1,9 @@
-# Makefile for kimi25 Vector Database (HNSW)
+# Makefile for qwen35 Vector Database
 
 CC = gcc
-CFLAGS = -std=c11 -O3 -Wall -Wextra -lpthread -lm
-TARGET = test_vector_db
-OBJS = vector_db.o test_vector_db.o
+CFLAGS = -std=c11 -O3 -Wall -Wextra -mavx -lpthread -lm
+TARGET = test_qwen35
+OBJS = qwen35_vdb.o test_qwen35.o
 
 .PHONY: all clean test
 

@@ -1,5 +1,7 @@
 # 向量数据库 (Vector Database)
 
+[![C/C++ CI](https://github.com/supermy/c-vector-database/actions/workflows/ci.yml/badge.svg)](https://github.com/supermy/c-vector-database/actions/workflows/ci.yml)
+
 C语言实现的高性能向量数据库，支持向量存储、相似度搜索和持久化。
 
 ## 项目结构
@@ -562,10 +564,75 @@ VecDB* db = vdb_load("database.bin");
 
 ---
 
+## 快速开始
+
+### 构建所有项目
+
+```bash
+# 使用 Makefile 构建所有项目
+for project in qwen35 minimax25 glm5 kimi25; do
+  cd $project && make && cd ..
+done
+```
+
+### 单独构建项目
+
+```bash
+# 构建 qwen35 (推荐)
+cd qwen35 && make
+
+# 构建 minimax25
+cd minimax25 && make
+
+# 构建 glm5
+cd glm5 && make
+
+# 构建 kimi25
+cd kimi25 && make
+```
+
+### 运行测试
+
+```bash
+# 运行 qwen35 测试
+cd qwen35 && ./test_qwen35
+
+# 运行 minimax25 测试
+cd minimax25 && ./test_vdb
+
+# 运行 glm5 测试
+cd glm5 && ./test_glm5
+
+# 运行 kimi25 测试
+cd kimi25 && ./test_vector_db
+```
+
+### 清理构建
+
+```bash
+cd qwen35 && make clean
+cd minimax25 && make clean
+cd glm5 && make clean
+cd kimi25 && make clean
+```
+
+---
+
 ## 依赖
 
 - C99 标准库
 - 数学库 (`-lm`)
+- pthread 库 (`-lpthread`)
+- GCC 或 Clang 编译器
+- Make 构建工具 (可选)
+
+---
+
+## 持续集成
+
+本项目使用 GitHub Actions 进行持续集成。每次推送到 main 分支或创建 Pull Request 时，会自动构建和测试所有四个项目。
+
+查看 [构建状态](https://github.com/supermy/c-vector-database/actions/workflows/ci.yml)
 
 ---
 
