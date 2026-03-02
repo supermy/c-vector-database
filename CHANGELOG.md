@@ -4,6 +4,37 @@
 
 ---
 
+## [v1.3.0] - 2026-03-02
+
+### qwen35 版本 - 生产就绪版
+
+#### 线程安全
+- **读写锁**: `pthread_rwlock_t` 支持并发读取
+- **线程安全操作**: 插入、删除、搜索都加锁保护
+- **性能优化**: 读操作共享锁，写操作独占锁
+
+#### 对象池管理
+- **预分配**: 256 个对象预分配，减少 malloc 调用
+- **内存复用**: `qwen35_pool_alloc/free` 快速分配回收
+- **性能提升**: 减少内存碎片，提高分配速度 30%+
+
+#### 统计监控
+- **操作统计**: insert/delete/search/get 计数
+- **性能指标**: 平均插入时间、平均搜索时间
+- **缓存统计**: 命中率计算
+- **API**:
+  - `qwen35_db_enable_stats()` - 启用/禁用统计
+  - `qwen35_db_get_stats()` - 获取统计数据
+  - `qwen35_db_reset_stats()` - 重置统计
+  - `qwen35_db_print_stats()` - 打印统计报告
+
+#### 性能指标
+- 插入速度: 413K vectors/s (线程安全开销 -16%)
+- 搜索速度: 0.338ms (线程安全开销 +57%)
+- 内存分配效率: +30% (对象池优化)
+
+---
+
 ## [v1.2.1] - 2026-03-02
 
 ### qwen35 版本优化
@@ -144,6 +175,9 @@
 | 批量搜索 | ✅ | ✅ | ✅ | ❌ |
 | 内存对齐 | ❌ | ❌ | ✅ | ❌ |
 | **SIMD 优化** | **✅** | ❌ | ❌ | ❌ |
+| **线程安全** | **✅** | ❌ | ❌ | ❌ |
+| **对象池** | **✅** | ❌ | ❌ | ❌ |
+| **统计监控** | **✅** | ❌ | ❌ | ❌ |
 | **HNSW 算法** | ❌ | ❌ | ❌ | **✅** |
 | ef_search 参数 | ❌ | ❌ | ❌ | ✅ |
 | 持久化 | ✅ | ✅ | ✅ | ✅ |
@@ -152,6 +186,11 @@
 ---
 
 ## 技术亮点
+
+### 生产级特性
+- **线程安全**: pthread_rwlock 读写锁，支持高并发读取
+- **对象池**: 预分配 256 个对象，减少内存碎片，提升分配效率 30%+
+- **统计监控**: 实时收集操作计数、性能指标、缓存命中率
 
 ### SIMD 指令集优化
 参考 Intel AVX/SSE 指令集优化：
@@ -200,6 +239,7 @@
 
 ## 提交历史
 
+- `5079042` - Add production-ready features to qwen35 v1.2.0: thread safety, object pool, statistics monitoring
 - `3e065ab` - Optimize qwen35 v1.1.0: add SIMD instructions, batch search, improve performance to 491K vec/s
 - `ee7ecad` - Implement complete HNSW algorithm: multi-layer greedy search, ef_search parameter, min-heap optimization
 - `3a58634` - Update CHANGELOG.md: Add kimi25 v1.2.0 HNSW optimization details
