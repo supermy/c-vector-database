@@ -10,7 +10,7 @@ UNAME_S := $(shell uname -s)
 UNAME_M := $(shell uname -m)
 
 # Base flags
-CFLAGS_BASE = -std=c11 -O3 -Wall -Wextra
+CFLAGS_BASE = -std=c11 -O3 -Wall -Wextra -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
 LDFLAGS_BASE = -lpthread -lm
 
 # Platform-specific flags
@@ -35,8 +35,8 @@ else ifeq ($(UNAME_S),Linux)
         # ARM64 Linux
         CFLAGS_SIMD = -DQWEN35_SIMD_NEON
     else
-        # x86_64 Linux - use SSE4.2 only for better compatibility
-        CFLAGS_SIMD = -msse4.2
+        # x86_64 Linux
+        CFLAGS_SIMD = -mavx -mavx2 -msse4.2
     endif
 else
     # Fallback
