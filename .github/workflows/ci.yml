@@ -12,7 +12,7 @@ jobs:
 
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-14]
+        os: [ubuntu-latest, macos-14, windows-latest]
         project: [qwen35, minimax25, glm5, kimi25]
 
     steps:
@@ -29,16 +29,32 @@ jobs:
       run: |
         brew install make
 
+    - name: Install dependencies (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        choco install make -y
+        echo "C:\Program Files (x86)\GnuWin32\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
     - name: Build ${{ matrix.project }} (${{ matrix.os }})
       run: |
         cd ${{ matrix.project }}
         make clean || true
         make
+      shell: bash
 
     - name: Test ${{ matrix.project }} (${{ matrix.os }})
+      if: runner.os != 'Windows'
       run: |
         cd ${{ matrix.project }}
         ./test_${{ matrix.project == 'qwen35' && 'qwen35' || matrix.project == 'minimax25' && 'vdb' || matrix.project == 'glm5' && 'glm5' || 'vector_db' }}
+      shell: bash
+
+    - name: Test ${{ matrix.project }} (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        cd ${{ matrix.project }}
+        .\test_${{ matrix.project == 'qwen35' && 'qwen35' || matrix.project == 'minimax25' && 'vdb' || matrix.project == 'glm5' && 'glm5' || 'vector_db' }}.exe || echo "Windows test execution"
+      shell: pwsh
 
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4

@@ -15,12 +15,16 @@
 **产物内容：**
 - `qwen35-binary-ubuntu-latest-*` - qwen35 测试程序 (Linux)
 - `qwen35-binary-macos-14-*` - qwen35 测试程序 (macOS)
+- `qwen35-binary-windows-latest-*` - qwen35 测试程序 (Windows)
 - `minimax25-binary-ubuntu-latest-*` - minimax25 测试程序 (Linux)
 - `minimax25-binary-macos-14-*` - minimax25 测试程序 (macOS)
+- `minimax25-binary-windows-latest-*` - minimax25 测试程序 (Windows)
 - `glm5-binary-ubuntu-latest-*` - glm5 测试程序 (Linux)
 - `glm5-binary-macos-14-*` - glm5 测试程序 (macOS)
+- `glm5-binary-windows-latest-*` - glm5 测试程序 (Windows)
 - `kimi25-binary-ubuntu-latest-*` - kimi25 测试程序 (Linux)
 - `kimi25-binary-macos-14-*` - kimi25 测试程序 (macOS)
+- `kimi25-binary-windows-latest-*` - kimi25 测试程序 (Windows)
 
 ### 永久构建产物 (GitHub Releases)
 
@@ -34,12 +38,16 @@
 **产物内容：**
 - `qwen35-linux-x64.tar.gz` (Linux 静态编译)
 - `qwen35-macos-arm64.tar.gz` (macOS 编译)
+- `qwen35-windows-x64.zip` (Windows 编译)
 - `minimax25-linux-x64.tar.gz` (Linux 静态编译)
 - `minimax25-macos-arm64.tar.gz` (macOS 编译)
+- `minimax25-windows-x64.zip` (Windows 编译)
 - `glm5-linux-x64.tar.gz` (Linux 静态编译)
 - `glm5-macos-arm64.tar.gz` (macOS 编译)
+- `glm5-windows-x64.zip` (Windows 编译)
 - `kimi25-linux-x64.tar.gz` (Linux 静态编译)
 - `kimi25-macos-arm64.tar.gz` (macOS 编译)
+- `kimi25-windows-x64.zip` (Windows 编译)
 - `SHA256SUMS.txt` (校验和文件)
 
 ### 多平台支持
@@ -48,6 +56,7 @@
 |------|------|----------|------|
 | Linux | x64 | 静态编译 | 无外部依赖 |
 | macOS | ARM64 | 动态编译 | 系统库依赖 |
+| Windows | x64 | MinGW 编译 | MinGW 运行时 |
 
 ## 触发 Release 构建
 

@@ -12,7 +12,7 @@ jobs:
 
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-14]
+        os: [ubuntu-latest, macos-14, windows-latest]
         project: [qwen35, minimax25, glm5, kimi25]
 
     steps:
@@ -29,6 +29,13 @@ jobs:
       run: |
         brew install make
 
+    - name: Install dependencies (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        choco install make -y
+        choco install mingw -y
+        echo "C:\ProgramData\chocolatey\lib\mingw\tools\install\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
     - name: Build ${{ matrix.project }} (${{ matrix.os }})
       run: |
         cd ${{ matrix.project }}
@@ -39,6 +46,7 @@ jobs:
         if [ "$RUNNER_OS" == "Linux" ]; then
           gcc -static -std=c11 -O3 -Wall -Wextra -o test_${{ matrix.project == 'qwen35' && 'qwen35' || matrix.project == 'minimax25' && 'vdb' || matrix.project == 'glm5' && 'glm5' || 'vector_db' }} ${{ matrix.project }}/*.c -lm -lpthread 2>/dev/null || true
         fi
+      shell: bash
 
     - name: Package binary
       run: |
@@ -52,15 +60,18 @@ jobs:
           tar -czf ${{ matrix.project }}-linux-x64.tar.gz test_*
         elif [ "$RUNNER_OS" == "macOS" ]; then
           tar -czf ${{ matrix.project }}-macos-arm64.tar.gz test_*
+        elif [ "$RUNNER_OS" == "Windows" ]; then
+          zip -r ${{ matrix.project }}-windows-x64.zip test_*
         fi
         
         rm -f test_*
+      shell: bash
 
     - name: Upload release artifact
       uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.project }}-release-${{ matrix.os }}
-        path: release/*.tar.gz
+        path: release/*
         retention-days: 5
 
   create-release:
