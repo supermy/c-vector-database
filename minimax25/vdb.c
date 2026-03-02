@@ -40,7 +40,53 @@ struct VectorDatabase {
     uint32_t num_clusters;
     Vector* cluster_centers;
     IVFCluster* clusters;
+    pthread_rwlock_t lock;
+    VDBObjectPool* obj_pool;
+    VDBStats stats;
+    bool enable_stats;
 };
+
+VDBObjectPool* vdb_pool_create(size_t object_size, uint32_t capacity) {
+    VDBObjectPool* pool = (VDBObjectPool*)malloc(sizeof(VDBObjectPool));
+    if (!pool) return NULL;
+    
+    pool->objects = (void**)calloc(capacity, sizeof(void*));
+    if (!pool->objects) { free(pool); return NULL; }
+    
+    for (uint32_t i = 0; i < capacity; i++) {
+        pool->objects[i] = calloc(1, object_size);
+        if (!pool->objects[i]) {
+            for (uint32_t j = 0; j < i; j++) free(pool->objects[j]);
+            free(pool->objects);
+            free(pool);
+            return NULL;
+        }
+    }
+    
+    pool->size = capacity;
+    pool->capacity = capacity;
+    pool->object_size = object_size;
+    return pool;
+}
+
+void vdb_pool_destroy(VDBObjectPool* pool) {
+    if (!pool) return;
+    for (uint32_t i = 0; i < pool->capacity; i++) {
+        if (pool->objects[i]) free(pool->objects[i]);
+    }
+    free(pool->objects);
+    free(pool);
+}
+
+void* vdb_pool_alloc(VDBObjectPool* pool) {
+    if (!pool || pool->size == 0) return NULL;
+    return pool->objects[--pool->size];
+}
+
+void vdb_pool_free(VDBObjectPool* pool, void* obj) {
+    if (!pool || !obj || pool->size >= pool->capacity) return;
+    pool->objects[pool->size++] = obj;
+}
 
 static uint64_t hash_uint64(uint64_t x) {
     x ^= x >> 33;
@@ -262,6 +308,9 @@ VectorDatabase* vdb_create(uint32_t dimension) {
         return NULL;
     }
     
+    pthread_rwlock_init(&db->lock, NULL);
+    db->obj_pool = vdb_pool_create(sizeof(VectorEntry), VDB_OBJECT_POOL_SIZE);
+    
     db->count = 0;
     db->capacity = DEFAULT_CAPACITY;
     db->dimension = dimension;
@@ -271,6 +320,8 @@ VectorDatabase* vdb_create(uint32_t dimension) {
     db->num_clusters = 0;
     db->cluster_centers = NULL;
     db->clusters = NULL;
+    db->enable_stats = true;
+    memset(&db->stats, 0, sizeof(VDBStats));
     
     return db;
 }
@@ -278,12 +329,16 @@ VectorDatabase* vdb_create(uint32_t dimension) {
 void vdb_free(VectorDatabase* db) {
     if (!db) return;
     
+    pthread_rwlock_destroy(&db->lock);
+    
     vdb_free_ivf_index(db);
     
     for (uint64_t i = 0; i < db->count; i++) {
         free(db->entries[i].vector.data);
         free(db->entries[i].metadata);
     }
+    
+    if (db->obj_pool) vdb_pool_destroy(db->obj_pool);
     
     free(db->entries);
     hashmap_destroy(db->id_map);
@@ -893,4 +948,49 @@ SearchResult* vdb_batch_search(VectorDatabase* db, const Vector** queries,
     }
     
     return all_results;
+}
+
+void vdb_enable_stats(VectorDatabase* db, bool enable) {
+    if (!db) return;
+    db->enable_stats = enable;
+}
+
+int vdb_get_stats(VectorDatabase* db, VDBStats* stats) {
+    if (!db || !stats) return VDB_ERROR;
+    pthread_rwlock_rdlock(&db->lock);
+    memcpy(stats, &db->stats, sizeof(VDBStats));
+    pthread_rwlock_unlock(&db->lock);
+    return VDB_OK;
+}
+
+void vdb_reset_stats(VectorDatabase* db) {
+    if (!db) return;
+    pthread_rwlock_wrlock(&db->lock);
+    memset(&db->stats, 0, sizeof(VDBStats));
+    pthread_rwlock_unlock(&db->lock);
+}
+
+void vdb_print_stats(VectorDatabase* db) {
+    if (!db) return;
+    pthread_rwlock_rdlock(&db->lock);
+    
+    printf("\n=== Minimax25 VectorDB Statistics ===\n");
+    printf("Version: %s\n", VDB_VERSION);
+    printf("Dimensions: %u\n", db->dimension);
+    printf("Size: %llu / %llu\n", (unsigned long long)db->count, (unsigned long long)db->capacity);
+    printf("Hash Buckets: %llu\n", (unsigned long long)db->id_map->capacity);
+    printf("IVF Built: %s\n", db->ivf_built ? "yes" : "no");
+    printf("Clusters: %u\n", db->num_clusters);
+    printf("\nOperations:\n");
+    printf("  Insert:  %llu (%.1f µs avg)\n", (unsigned long long)db->stats.insert_count, db->stats.avg_insert_us);
+    printf("  Delete:  %llu\n", (unsigned long long)db->stats.delete_count);
+    printf("  Search:  %llu (%.3f ms avg)\n", (unsigned long long)db->stats.search_count, db->stats.avg_search_ms);
+    printf("  Get:     %llu\n", (unsigned long long)db->stats.get_count);
+    printf("======================================\n\n");
+    
+    pthread_rwlock_unlock(&db->lock);
+}
+
+const char* vdb_get_version(void) {
+    return VDB_VERSION;
 }
