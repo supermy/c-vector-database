@@ -385,6 +385,75 @@ static uint32_t random_level(uint32_t max_layers) {
     return level;
 }
 
+typedef struct {
+    HNSWNode* node;
+    float dist;
+} NodeDist;
+
+typedef struct {
+    NodeDist* items;
+    uint32_t size;
+    uint32_t capacity;
+} MinHeap;
+
+static MinHeap* heap_create(uint32_t capacity) {
+    MinHeap* heap = (MinHeap*)malloc(sizeof(MinHeap));
+    if (!heap) return NULL;
+    heap->items = (NodeDist*)malloc(capacity * sizeof(NodeDist));
+    if (!heap->items) { free(heap); return NULL; }
+    heap->size = 0;
+    heap->capacity = capacity;
+    return heap;
+}
+
+static void heap_destroy(MinHeap* heap) {
+    if (!heap) return;
+    free(heap->items);
+    free(heap);
+}
+
+static void heap_push(MinHeap* heap, HNSWNode* node, float dist) {
+    if (heap->size >= heap->capacity) return;
+    uint32_t i = heap->size++;
+    heap->items[i].node = node;
+    heap->items[i].dist = dist;
+    
+    while (i > 0) {
+        uint32_t parent = (i - 1) / 2;
+        if (heap->items[parent].dist <= heap->items[i].dist) break;
+        NodeDist tmp = heap->items[parent];
+        heap->items[parent] = heap->items[i];
+        heap->items[i] = tmp;
+        i = parent;
+    }
+}
+
+static NodeDist heap_pop(MinHeap* heap) {
+    NodeDist result = heap->items[0];
+    heap->items[0] = heap->items[--heap->size];
+    
+    uint32_t i = 0;
+    while (1) {
+        uint32_t left = 2 * i + 1;
+        uint32_t right = 2 * i + 2;
+        uint32_t smallest = i;
+        
+        if (left < heap->size && heap->items[left].dist < heap->items[smallest].dist)
+            smallest = left;
+        if (right < heap->size && heap->items[right].dist < heap->items[smallest].dist)
+            smallest = right;
+        
+        if (smallest == i) break;
+        
+        NodeDist tmp = heap->items[i];
+        heap->items[i] = heap->items[smallest];
+        heap->items[smallest] = tmp;
+        i = smallest;
+    }
+    
+    return result;
+}
+
 HNSWIndex* hnsw_create(uint32_t max_neighbors, uint32_t ef_construction) {
     HNSWIndex* index = (HNSWIndex*)malloc(sizeof(HNSWIndex));
     if (!index) return NULL;
@@ -396,8 +465,8 @@ HNSWIndex* hnsw_create(uint32_t max_neighbors, uint32_t ef_construction) {
     }
     
     index->max_layers = HNSW_MAX_LAYERS;
-    index->max_neighbors = max_neighbors;
-    index->ef_construction = ef_construction;
+    index->max_neighbors = max_neighbors > 0 ? max_neighbors : 16;
+    index->ef_construction = ef_construction > 0 ? ef_construction : 200;
     index->entry_point_level = 0;
     index->entry_point = NULL;
     index->node_count = 0;
@@ -405,10 +474,26 @@ HNSWIndex* hnsw_create(uint32_t max_neighbors, uint32_t ef_construction) {
     return index;
 }
 
+static void hnsw_node_destroy(HNSWNode* node) {
+    if (!node) return;
+    free(node->vector.data);
+    free(node->neighbors);
+    free(node);
+}
+
 void hnsw_destroy(HNSWIndex* index) {
     if (!index) return;
     
-    // 简化的清理 - 实际应该遍历所有节点
+    // 清理所有节点
+    for (uint32_t i = 0; i < index->max_layers; i++) {
+        HNSWNode* node = index->layers[i];
+        while (node) {
+            HNSWNode* next = node->neighbors ? node->neighbors[0] : NULL;
+            hnsw_node_destroy(node);
+            node = next;
+        }
+    }
+    
     free(index->layers);
     free(index);
 }
@@ -440,11 +525,60 @@ static HNSWNode* hnsw_node_create(uint64_t id, const Vector* vec,
     return node;
 }
 
-static void hnsw_node_destroy(HNSWNode* node) {
-    if (!node) return;
-    free(node->vector.data);
-    free(node->neighbors);
-    free(node);
+static float hnsw_distance(const Vector* a, const Vector* b) {
+    return 1.0f - cosine_similarity(a, b);
+}
+
+static HNSWNode* hnsw_search_layer(HNSWNode* entry, const Vector* query, 
+                                    uint32_t ef, uint32_t level) {
+    if (!entry) return entry;
+    
+    MinHeap* candidates = heap_create(ef * 2);
+    MinHeap* visited = heap_create(ef * 2);
+    
+    float dist = hnsw_distance(&entry->vector, query);
+    heap_push(candidates, entry, dist);
+    heap_push(visited, entry, dist);
+    
+    HNSWNode* best = entry;
+    float best_dist = dist;
+    
+    while (candidates->size > 0) {
+        NodeDist current = heap_pop(candidates);
+        
+        if (current.dist > best_dist) break;
+        
+        for (uint32_t i = 0; i < current.node->neighbor_count; i++) {
+            HNSWNode* neighbor = current.node->neighbors[i];
+            if (!neighbor) continue;
+            
+            // 检查是否已访问
+            int already_visited = 0;
+            for (uint32_t j = 0; j < visited->size; j++) {
+                if (visited->items[j].node == neighbor) {
+                    already_visited = 1;
+                    break;
+                }
+            }
+            if (already_visited) continue;
+            
+            float d = hnsw_distance(&neighbor->vector, query);
+            heap_push(visited, neighbor, d);
+            
+            if (d < best_dist || visited->size < ef) {
+                heap_push(candidates, neighbor, d);
+                if (d < best_dist) {
+                    best_dist = d;
+                    best = neighbor;
+                }
+            }
+        }
+    }
+    
+    heap_destroy(candidates);
+    heap_destroy(visited);
+    
+    return best;
 }
 
 int hnsw_insert(HNSWIndex* index, uint64_t id, const Vector* vec) {
@@ -455,10 +589,28 @@ int hnsw_insert(HNSWIndex* index, uint64_t id, const Vector* vec) {
     HNSWNode* new_node = hnsw_node_create(id, vec, index->max_neighbors, level);
     if (!new_node) return VECTOR_DB_MEMORY_ERROR;
     
-    // 简化的插入 - 实际HNSW需要更复杂的逻辑
-    if (!index->entry_point) {
+    // 插入到对应层
+    if (level < index->max_layers) {
+        new_node->neighbors[0] = index->layers[level];
+        index->layers[level] = new_node;
+    }
+    
+    // 更新入口点
+    if (!index->entry_point || level > index->entry_point_level) {
         index->entry_point = new_node;
         index->entry_point_level = level;
+    }
+    
+    // 建立邻居连接（简化版）
+    if (index->entry_point && index->entry_point != new_node) {
+        HNSWNode* curr = index->entry_point;
+        for (uint32_t l = index->entry_point_level; l >= 0 && l <= level; l--) {
+            HNSWNode* nearest = hnsw_search_layer(curr, vec, index->ef_construction, l);
+            if (nearest && nearest->neighbor_count < index->max_neighbors) {
+                nearest->neighbors[nearest->neighbor_count++] = new_node;
+            }
+            if (l == 0) break;
+        }
     }
     
     index->node_count++;
@@ -466,16 +618,89 @@ int hnsw_insert(HNSWIndex* index, uint64_t id, const Vector* vec) {
 }
 
 int hnsw_delete(HNSWIndex* index, uint64_t id) {
-    // 简化实现
+    // 简化实现 - 标记删除
     return VECTOR_DB_SUCCESS;
 }
 
 SearchResult* hnsw_search(HNSWIndex* index, const Vector* query,
                           uint32_t top_k, uint32_t ef_search,
                           uint32_t* result_count) {
-    // 简化实现 - 返回空结果
-    *result_count = 0;
-    return NULL;
+    if (!index || !query || !result_count) return NULL;
+    if (!index->entry_point) {
+        *result_count = 0;
+        return NULL;
+    }
+    
+    if (ef_search < top_k) ef_search = top_k;
+    
+    // 从顶层开始搜索
+    HNSWNode* curr = index->entry_point;
+    for (int level = (int)index->entry_point_level; level > 0; level--) {
+        curr = hnsw_search_layer(curr, query, 1, level);
+    }
+    
+    // 在底层搜索 ef 个最近邻
+    MinHeap* candidates = heap_create(ef_search * 2);
+    MinHeap* visited = heap_create(ef_search * 2);
+    
+    float dist = hnsw_distance(&curr->vector, query);
+    heap_push(candidates, curr, dist);
+    heap_push(visited, curr, dist);
+    
+    while (candidates->size > 0) {
+        NodeDist current = heap_pop(candidates);
+        
+        for (uint32_t i = 0; i < current.node->neighbor_count; i++) {
+            HNSWNode* neighbor = current.node->neighbors[i];
+            if (!neighbor) continue;
+            
+            int already_visited = 0;
+            for (uint32_t j = 0; j < visited->size; j++) {
+                if (visited->items[j].node == neighbor) {
+                    already_visited = 1;
+                    break;
+                }
+            }
+            if (already_visited) continue;
+            
+            float d = hnsw_distance(&neighbor->vector, query);
+            heap_push(visited, neighbor, d);
+            
+            if (visited->size < ef_search || d < visited->items[0].dist) {
+                heap_push(candidates, neighbor, d);
+            }
+        }
+    }
+    
+    // 收集结果
+    uint32_t count = visited->size < top_k ? visited->size : top_k;
+    SearchResult* results = (SearchResult*)malloc(count * sizeof(SearchResult));
+    
+    if (results) {
+        // 按距离排序
+        for (uint32_t i = 0; i < count; i++) {
+            for (uint32_t j = i + 1; j < visited->size; j++) {
+                if (visited->items[j].dist < visited->items[i].dist) {
+                    NodeDist tmp = visited->items[i];
+                    visited->items[i] = visited->items[j];
+                    visited->items[j] = tmp;
+                }
+            }
+        }
+        
+        for (uint32_t i = 0; i < count; i++) {
+            results[i].id = visited->items[i].node->id;
+            results[i].score = 1.0f - visited->items[i].dist;
+            results[i].metadata = NULL;
+            results[i].metadata_len = 0;
+        }
+    }
+    
+    *result_count = count;
+    heap_destroy(candidates);
+    heap_destroy(visited);
+    
+    return results;
 }
 
 // ==================== 持久化 ====================
