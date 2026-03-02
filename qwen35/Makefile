@@ -36,7 +36,7 @@ else ifeq ($(UNAME_S),Linux)
         CFLAGS_SIMD = -DQWEN35_SIMD_NEON
     else
         # x86_64 Linux
-        CFLAGS_SIMD = -mavx -mavx2 -msse4.2
+        CFLAGS_SIMD = -msse3 -mavx -mavx2 -msse4.2
     endif
 else
     # Fallback
