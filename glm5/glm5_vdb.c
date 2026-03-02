@@ -5,6 +5,11 @@
 #include <math.h>
 #include <time.h>
 
+// Windows needs malloc.h for _aligned_malloc
+#if defined(_WIN32) || defined(_WIN64)
+#include <malloc.h>
+#endif
+
 #define INIT_CAP 4096
 #define HASH_BUCKETS 16384
 #define MEM_POOL_BLOCK_SIZE (1024 * 1024)
