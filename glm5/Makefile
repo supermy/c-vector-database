@@ -1,7 +1,8 @@
 # Makefile for glm5 Vector Database
 
 CC = gcc
-CFLAGS = -std=c11 -O3 -Wall -Wextra -lpthread -lm
+CFLAGS = -std=c11 -O3 -Wall -Wextra
+LDFLAGS = -lpthread -lm
 TARGET = test_glm5
 OBJS = glm5_vdb.o test_glm5.o
 
@@ -10,7 +11,7 @@ OBJS = glm5_vdb.o test_glm5.o
 all: $(TARGET)
 
 $(TARGET): $(OBJS)
-	$(CC) $(OBJS) -o $(TARGET) $(CFLAGS)
+	$(CC) $(OBJS) -o $(TARGET) $(LDFLAGS)
 
 %.o: %.c
 	$(CC) -c $< -o $@ $(CFLAGS)

@@ -1,7 +1,8 @@
 # Makefile for minimax25 Vector Database
 
 CC = gcc
-CFLAGS = -std=c11 -O3 -Wall -Wextra -lpthread -lm
+CFLAGS = -std=c11 -O3 -Wall -Wextra
+LDFLAGS = -lpthread -lm
 TARGET = test_vdb
 OBJS = vdb.o test_vdb.o
 
@@ -10,7 +11,7 @@ OBJS = vdb.o test_vdb.o
 all: $(TARGET)
 
 $(TARGET): $(OBJS)
-	$(CC) $(OBJS) -o $(TARGET) $(CFLAGS)
+	$(CC) $(OBJS) -o $(TARGET) $(LDFLAGS)
 
 %.o: %.c
 	$(CC) -c $< -o $@ $(CFLAGS)

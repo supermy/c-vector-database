@@ -1,7 +1,8 @@
 # Makefile for kimi25 Vector Database (HNSW)
 
 CC = gcc
-CFLAGS = -std=c11 -O3 -Wall -Wextra -lpthread -lm
+CFLAGS = -std=c11 -O3 -Wall -Wextra
+LDFLAGS = -lpthread -lm
 TARGET = test_vector_db
 OBJS = vector_db.o test_vector_db.o
 
@@ -10,7 +11,7 @@ OBJS = vector_db.o test_vector_db.o
 all: $(TARGET)
 
 $(TARGET): $(OBJS)
-	$(CC) $(OBJS) -o $(TARGET) $(CFLAGS)
+	$(CC) $(OBJS) -o $(TARGET) $(LDFLAGS)
 
 %.o: %.c
 	$(CC) -c $< -o $@ $(CFLAGS)
