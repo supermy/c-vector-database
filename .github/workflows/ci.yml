@@ -36,9 +36,10 @@ jobs:
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ matrix.project }}-binary
+        name: ${{ matrix.project }}-binary-${{ github.run_number }}
         path: ${{ matrix.project }}/test_*
-        retention-days: 7
+        retention-days: 90
+        if-no-files-found: ignore
 
   build-all:
     runs-on: ubuntu-latest
