@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <time.h>
 
 #define INIT_CAP 4096
 #define HASH_BUCKETS 16384
@@ -39,7 +40,53 @@ struct VecDB {
     Cluster* clusters;
     uint32_t num_clusters;
     int index_built;
+    pthread_rwlock_t lock;
+    GLM5ObjectPool* obj_pool;
+    GLM5Stats stats;
+    bool enable_stats;
 };
+
+GLM5ObjectPool* glm5_pool_create(size_t object_size, uint32_t capacity) {
+    GLM5ObjectPool* pool = (GLM5ObjectPool*)malloc(sizeof(GLM5ObjectPool));
+    if (!pool) return NULL;
+    
+    pool->objects = (void**)calloc(capacity, sizeof(void*));
+    if (!pool->objects) { free(pool); return NULL; }
+    
+    for (uint32_t i = 0; i < capacity; i++) {
+        pool->objects[i] = calloc(1, object_size);
+        if (!pool->objects[i]) {
+            for (uint32_t j = 0; j < i; j++) free(pool->objects[j]);
+            free(pool->objects);
+            free(pool);
+            return NULL;
+        }
+    }
+    
+    pool->size = capacity;
+    pool->capacity = capacity;
+    pool->object_size = object_size;
+    return pool;
+}
+
+void glm5_pool_destroy(GLM5ObjectPool* pool) {
+    if (!pool) return;
+    for (uint32_t i = 0; i < pool->capacity; i++) {
+        if (pool->objects[i]) free(pool->objects[i]);
+    }
+    free(pool->objects);
+    free(pool);
+}
+
+void* glm5_pool_alloc(GLM5ObjectPool* pool) {
+    if (!pool || pool->size == 0) return NULL;
+    return pool->objects[--pool->size];
+}
+
+void glm5_pool_free(GLM5ObjectPool* pool, void* obj) {
+    if (!pool || !obj || pool->size >= pool->capacity) return;
+    pool->objects[pool->size++] = obj;
+}
 
 static MemPool* pool_create(size_t size) {
     MemPool* p = (MemPool*)malloc(sizeof(MemPool));
@@ -251,6 +298,9 @@ VecDB* vdb_new(uint32_t dim) {
     db->buckets = hash_init(HASH_BUCKETS);
     if (!db->buckets) { free(db->entries); free(db); return NULL; }
     
+    pthread_rwlock_init(&db->lock, NULL);
+    db->obj_pool = glm5_pool_create(sizeof(VecEntry), GLM5_OBJECT_POOL_SIZE);
+    
     db->cnt = 0;
     db->cap = INIT_CAP;
     db->dim = dim;
@@ -259,6 +309,8 @@ VecDB* vdb_new(uint32_t dim) {
     db->clusters = NULL;
     db->num_clusters = 0;
     db->index_built = 0;
+    db->enable_stats = true;
+    memset(&db->stats, 0, sizeof(GLM5Stats));
     
     return db;
 }
@@ -272,12 +324,16 @@ static void free_entry(VecEntry* e) {
 
 void vdb_free(VecDB* db) {
     if (!db) return;
+    
+    pthread_rwlock_destroy(&db->lock);
+    
     for (uint64_t i = 0; i < db->cnt; i++) {
         free_entry(&db->entries[i]);
     }
     free(db->entries);
     hash_free(db->buckets, db->bucket_cnt);
     pool_destroy(db->pool);
+    if (db->obj_pool) glm5_pool_destroy(db->obj_pool);
     if (db->clusters) {
         for (uint32_t i = 0; i < db->num_clusters; i++) {
             free(db->clusters[i].center.values);
@@ -434,6 +490,51 @@ QueryResult* vdb_query(VecDB* db, const Vector* q, const QueryOpts* opts, uint32
     
     *n = cnt;
     return r;
+}
+
+void vdb_enable_stats(VecDB* db, bool enable) {
+    if (!db) return;
+    db->enable_stats = enable;
+}
+
+int vdb_get_stats(VecDB* db, GLM5Stats* stats) {
+    if (!db || !stats) return GLM5_VDB_ERR;
+    pthread_rwlock_rdlock(&db->lock);
+    memcpy(stats, &db->stats, sizeof(GLM5Stats));
+    pthread_rwlock_unlock(&db->lock);
+    return GLM5_VDB_OK;
+}
+
+void vdb_reset_stats(VecDB* db) {
+    if (!db) return;
+    pthread_rwlock_wrlock(&db->lock);
+    memset(&db->stats, 0, sizeof(GLM5Stats));
+    pthread_rwlock_unlock(&db->lock);
+}
+
+void vdb_print_stats(VecDB* db) {
+    if (!db) return;
+    pthread_rwlock_rdlock(&db->lock);
+    
+    printf("\n=== GLM5 VectorDB Statistics ===\n");
+    printf("Version: %s\n", GLM5_VDB_VERSION);
+    printf("Dimensions: %u\n", db->dim);
+    printf("Size: %llu / %llu\n", (unsigned long long)db->cnt, (unsigned long long)db->cap);
+    printf("Hash Buckets: %llu\n", (unsigned long long)db->bucket_cnt);
+    printf("Index Built: %s\n", db->index_built ? "yes" : "no");
+    printf("Clusters: %u\n", db->num_clusters);
+    printf("\nOperations:\n");
+    printf("  Insert:  %llu (%.1f µs avg)\n", (unsigned long long)db->stats.insert_count, db->stats.avg_insert_us);
+    printf("  Delete:  %llu\n", (unsigned long long)db->stats.delete_count);
+    printf("  Query:   %llu (%.3f ms avg)\n", (unsigned long long)db->stats.query_count, db->stats.avg_query_ms);
+    printf("  Get:     %llu\n", (unsigned long long)db->stats.get_count);
+    printf("================================\n\n");
+    
+    pthread_rwlock_unlock(&db->lock);
+}
+
+const char* glm5_get_version(void) {
+    return GLM5_VDB_VERSION;
 }
 
 void vdb_free_results(QueryResult* r, uint32_t n) {

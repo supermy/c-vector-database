@@ -4,11 +4,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <pthread.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+#define GLM5_VDB_VERSION "1.2.0-production"
 #define GLM5_VDB_OK                0
 #define GLM5_VDB_ERR              -1
 #define GLM5_VDB_NOT_FOUND        -2
@@ -19,6 +21,7 @@ extern "C" {
 
 #define GLM5_CACHE_LINE_SIZE      64
 #define GLM5_ALIGN_SIZE           64
+#define GLM5_OBJECT_POOL_SIZE     256
 
 typedef enum {
     METRIC_COSINE,
@@ -56,6 +59,22 @@ typedef struct {
     uint32_t ef;
 } QueryOpts;
 
+typedef struct {
+    void** objects;
+    uint32_t size;
+    uint32_t capacity;
+    size_t object_size;
+} GLM5ObjectPool;
+
+typedef struct {
+    uint64_t insert_count;
+    uint64_t delete_count;
+    uint64_t query_count;
+    uint64_t get_count;
+    double avg_insert_us;
+    double avg_query_ms;
+} GLM5Stats;
+
 Vector* vec_new(uint32_t dim);
 Vector* vec_new_aligned(uint32_t dim);
 void vec_free(Vector* v);
@@ -90,6 +109,18 @@ VecDB* vdb_load(const char* path);
 void vdb_info(VecDB* db);
 void vdb_build_index(VecDB* db, uint32_t num_clusters);
 QueryResult* vdb_query_indexed(VecDB* db, const Vector* q, const QueryOpts* opts, uint32_t* n);
+
+GLM5ObjectPool* glm5_pool_create(size_t object_size, uint32_t capacity);
+void glm5_pool_destroy(GLM5ObjectPool* pool);
+void* glm5_pool_alloc(GLM5ObjectPool* pool);
+void glm5_pool_free(GLM5ObjectPool* pool, void* obj);
+
+void vdb_enable_stats(VecDB* db, bool enable);
+int vdb_get_stats(VecDB* db, GLM5Stats* stats);
+void vdb_reset_stats(VecDB* db);
+void vdb_print_stats(VecDB* db);
+
+const char* glm5_get_version(void);
 
 #ifdef __cplusplus
 }
