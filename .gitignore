@@ -14,6 +14,10 @@ test_qwen35
 test_db.bin
 glm5_test.bin
 
+# Rust 编译产物
+target/
+Cargo.lock
+
 # IDE
 .vscode/
 .idea/

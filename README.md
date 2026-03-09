@@ -2,35 +2,40 @@
 
 [![C/C++ CI](https://github.com/supermy/c-vector-database/actions/workflows/ci.yml/badge.svg)](https://github.com/supermy/c-vector-database/actions/workflows/ci.yml)
 
-C语言实现的高性能向量数据库，支持向量存储、相似度搜索和持久化。
+C语言和Rust实现的高性能向量数据库，支持向量存储、相似度搜索和持久化。
 
 ## 项目结构
 
 ```
 vdb/
-├── kimi25/           # kimi25 版本
+├── kimi25/           # kimi25 版本 (C)
 │   ├── vector_db.h
 │   ├── vector_db.c
 │   ├── test_vector_db.c
 │   └── Makefile
-├── minimax25/        # minimax25 版本
+├── minimax25/        # minimax25 版本 (C)
 │   ├── vdb.h
 │   ├── vdb.c
 │   └── test_vdb.c
-├── glm5/             # glm5 版本
+├── glm5/             # glm5 版本 (C)
 │   ├── glm5_vdb.h
 │   ├── glm5_vdb.c
 │   └── test_glm5.c
-├── qwen35/           # qwen35 版本 (最新)
+├── qwen35/           # qwen35 版本 (C)
 │   ├── qwen35_vdb.h
 │   ├── qwen35_vdb.c
 │   └── test_qwen35.c
+├── rust-glm5/        # rust-glm5 版本 (Rust)
+├── rust-kimi25/      # rust-kimi25 版本 (Rust, HNSW)
+├── rust-minimax25/   # rust-minimax25 版本 (Rust)
+├── rust-qwen35/      # rust-qwen35 版本 (Rust)
+├── rust-ds20code/    # rust-ds20code 版本 (Rust, 最新) ⭐
 └── benchmark.c       # 性能对比测试
 ```
 
 ## 版本对比
 
-### 性能指标
+### C 语言版本性能指标
 
 | 指标 | kimi25 | minimax25 | glm5 | qwen35 |
 |------|--------|-----------|------|--------|
@@ -40,23 +45,37 @@ vdb/
 | 哈希桶数 | - | 8192 | 16384 | **16384** |
 | SIMD 优化 | ❌ | ❌ | ❌ | ✅ |
 
-### 功能特性
+### Rust 版本性能指标 (128维向量, 10000向量)
 
-| 功能 | kimi25 | minimax25 | glm5 | qwen35 |
-|------|:------:|:---------:|:----:|:------:|
-| 向量 CRUD | ✅ | ✅ | ✅ | ✅ |
-| Top-K 搜索 | ✅ | ✅ | ✅ | ✅ |
-| 余弦相似度 | ✅ | ✅ | ✅ | ✅ |
-| 欧氏距离 | ✅ | ✅ | ✅ | ✅ |
-| 点积距离 | ❌ | ✅ | ✅ | ✅ |
-| 距离度量切换 | ❌ | ✅ | ✅ | ✅ |
-| 哈希索引 | ❌ | ✅ | ✅ | ✅ |
-| HNSW 框架 | ✅ | ❌ | ❌ | ❌ |
-| 持久化 | ✅ | ✅ | ✅ | ✅ |
-| 重复 ID 检测 | ❌ | ✅ | ✅ | ✅ |
-| 元数据支持 | ✅ | ✅ | ✅ | ✅ |
-| **SIMD 优化** | ❌ | ❌ | ❌ | **✅** |
-| **批量搜索** | ❌ | ✅ | ✅ | ✅ |
+| 指标 | rust-glm5 | rust-kimi25 | rust-minimax25 | rust-ds20code |
+|------|-----------|-------------|----------------|---------------|
+| 插入速度 (Flat) | ~1.3M vec/s | ~7K vec/s (HNSW) | ~1.2M vec/s | **~1.3M vec/s** |
+| 插入速度 (HNSW) | - | ~7K vec/s | - | **~10K vec/s** |
+| 搜索速度 (Flat, 10K) | ~2.4ms | - | ~2.5ms | **~1.4ms** |
+| 搜索速度 (HNSW, 10K) | - | ~21µs | - | **~21µs** |
+| 批量搜索 (100 queries) | ~85ms | ~2ms | ~90ms | **~85ms** |
+| HNSW 索引 | ❌ | ✅ | ❌ | ✅ |
+| 并行处理 | ✅ | ✅ | ✅ | ✅ |
+| SIMD 优化 | ✅ | ✅ | ✅ | ✅ |
+
+### 功能特性对比
+
+| 功能 | kimi25 | minimax25 | glm5 | qwen35 | rust-glm5 | rust-kimi25 | rust-minimax25 | rust-ds20code |
+|------|:------:|:---------:|:----:|:------:|:---------:|:-----------:|:--------------:|:-------------:|
+| 向量 CRUD | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Top-K 搜索 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 余弦相似度 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 欧氏距离 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 点积距离 | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 距离度量切换 | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 哈希索引 | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| HNSW 索引 | ⚠️框架 | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ✅ |
+| 持久化 | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| 重复 ID 检测 | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 元数据支持 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| SIMD 优化 | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 批量搜索 | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 并行处理 | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
 
 ### 适用场景
 
@@ -66,6 +85,10 @@ vdb/
 | **minimax25** | 中等数据量、通用场景、需要快速搜索 |
 | **glm5** | 大数据量、内存敏感、需要快速插入 |
 | **qwen35** | 高性能需求、大规模数据、需要最快搜索 |
+| **rust-glm5** | Rust项目、需要线程安全、并行搜索 |
+| **rust-kimi25** | Rust项目、需要HNSW近似搜索 |
+| **rust-minimax25** | Rust项目、通用场景 |
+| **rust-ds20code** | Rust项目、最高性能、完整HNSW实现 ⭐ |
 
 ---
 
@@ -524,6 +547,138 @@ typedef enum {
 
 ---
 
+## rust-ds20code 版本 ⭐⭐⭐ (最新推荐)
+
+### 特点
+
+- **最高性能**：Flat索引搜索 ~1.4ms (10K向量)，HNSW搜索 ~21µs
+- **双索引模式**：支持 Flat（暴力搜索）和 HNSW（近似搜索）两种索引
+- **完整 HNSW 实现**：包含层级构建、邻居选择、动态插入等完整算法
+- **SIMD 优化**：手写循环展开优化，一次处理8个float
+- **并行处理**：使用 Rayon 实现并行搜索和批量操作
+- **线程安全**：使用 parking_lot RwLock 实现细粒度锁
+- **高性能哈希**：使用 ahash 实现快速 ID 查找
+- **灵活配置**：支持自定义 HNSW 参数 (M, ef_construction, ef_search)
+
+### 编译运行
+
+```bash
+cd rust-ds20code
+
+# 构建
+cargo build --release
+
+# 运行测试
+cargo test --release
+
+# 运行性能测试
+cargo bench
+```
+
+### API 示例
+
+```rust
+use rust_ds20code::{VectorDB, DistanceMetric};
+
+// 创建 Flat 索引数据库（暴力搜索）
+let db = VectorDB::new(128, DistanceMetric::Cosine);
+
+// 创建 HNSW 索引数据库（近似搜索，更快）
+let db = VectorDB::with_hnsw(128, DistanceMetric::Cosine);
+
+// 插入向量
+let vector: Vec<f32> = vec![0.1; 128];
+db.insert(1, &vector, None).unwrap();
+
+// 搜索最近邻
+let query: Vec<f32> = vec![0.1; 128];
+let results = db.search(&query, 10).unwrap();
+
+for result in results {
+    println!("ID: {}, Distance: {}", result.id, result.distance);
+}
+
+// 批量搜索
+let queries: Vec<&[f32]> = vec![&query1, &query2];
+let batch_results = db.batch_search(&queries, 10).unwrap();
+
+// 获取统计信息
+db.print_stats();
+```
+
+### 核心 API
+
+```rust
+// 创建数据库
+VectorDB::new(dimension: usize, metric: DistanceMetric) -> Self;  // Flat 索引
+VectorDB::with_hnsw(dimension: usize, metric: DistanceMetric) -> Self;  // HNSW 索引
+
+// 插入和删除
+fn insert(&self, id: u64, vector: &[f32], metadata: Option<Vec<u8>>) -> Result<()>;
+fn delete(&self, id: u64) -> Result<()>;
+fn get(&self, id: u64) -> Option<VectorEntry>;
+
+// 搜索
+fn search(&self, query: &[f32], k: usize) -> Result<Vec<SearchResult>>;
+fn search_with_threshold(&self, query: &[f32], k: usize, threshold: f32) -> Result<Vec<SearchResult>>;
+fn batch_search(&self, queries: &[&[f32]], k: usize) -> Result<Vec<Vec<SearchResult>>>;
+
+// 统计信息
+fn stats(&self) -> Stats;
+fn print_stats(&self);
+```
+
+### 距离度量类型
+
+```rust
+pub enum DistanceMetric {
+    Cosine,        // 余弦相似度（推荐用于文本嵌入）
+    Euclidean,     // 欧氏距离（推荐用于图像特征）
+    DotProduct,    // 点积（推荐用于推荐系统）
+}
+```
+
+### 性能基准测试结果
+
+测试环境：Apple M2, 128 维向量
+
+#### 插入性能
+
+| 向量数量 | Flat 索引 | HNSW 索引 |
+|----------|-----------|-----------|
+| 100 | 41 µs | 6.2 ms |
+| 1,000 | 417 µs | 81 ms |
+| 10,000 | 7.5 ms | 967 ms |
+
+#### 搜索性能
+
+| 向量数量 | Flat 索引 | HNSW 索引 |
+|----------|-----------|-----------|
+| 100 | 38 µs | 20 µs |
+| 1,000 | 258 µs | 21 µs |
+| 10,000 | 1.4 ms | 21 µs |
+
+#### 不同维度搜索性能 (10K向量)
+
+| 维度 | 搜索时间 |
+|------|----------|
+| 64 | 0.94 ms |
+| 128 | 1.45 ms |
+| 256 | 2.55 ms |
+| 512 | 4.76 ms |
+| 768 | 7.63 ms |
+| 1024 | 9.23 ms |
+
+### 为什么选择 rust-ds20code？
+
+1. **双索引模式**：Flat 索引保证100%精度，HNSW索引提供极速搜索
+2. **最佳性能**：结合了 Rust 的零成本抽象和手动 SIMD 优化
+3. **线程安全**：所有操作都是线程安全的，支持高并发场景
+4. **内存高效**：使用 ahash 和优化的数据结构减少内存占用
+5. **生产就绪**：完整的错误处理和测试覆盖
+
+---
+
 ## 距离度量说明
 
 | 度量方式 | 说明 | 值范围 |
@@ -566,20 +721,35 @@ VecDB* db = vdb_load("database.bin");
 
 ## 快速开始
 
-### 构建所有项目
+### 构建 C 项目
 
 ```bash
-# 使用 Makefile 构建所有项目
+# 使用 Makefile 构建所有 C 项目
 for project in qwen35 minimax25 glm5 kimi25; do
   cd $project && make && cd ..
+done
+```
+
+### 构建 Rust 项目
+
+```bash
+# 构建 rust-ds20code (推荐)
+cd rust-ds20code && cargo build --release && cd ..
+
+# 构建其他 Rust 项目
+for project in rust-glm5 rust-kimi25 rust-minimax25 rust-qwen35; do
+  cd $project && cargo build --release && cd ..
 done
 ```
 
 ### 单独构建项目
 
 ```bash
-# 构建 qwen35 (推荐)
+# 构建 qwen35 (C, 推荐)
 cd qwen35 && make
+
+# 构建 rust-ds20code (Rust, 最新推荐)
+cd rust-ds20code && cargo build --release
 
 # 构建 minimax25
 cd minimax25 && make
@@ -594,37 +764,67 @@ cd kimi25 && make
 ### 运行测试
 
 ```bash
-# 运行 qwen35 测试
+# 运行 C 项目测试
 cd qwen35 && ./test_qwen35
-
-# 运行 minimax25 测试
 cd minimax25 && ./test_vdb
-
-# 运行 glm5 测试
 cd glm5 && ./test_glm5
-
-# 运行 kimi25 测试
 cd kimi25 && ./test_vector_db
+
+# 运行 Rust 项目测试
+cd rust-ds20code && cargo test --release
+cd rust-glm5 && cargo test --release
+cd rust-kimi25 && cargo test --release
+cd rust-minimax25 && cargo test --release
+```
+
+### 运行性能测试
+
+```bash
+# 运行 Rust 性能测试
+cd rust-ds20code && cargo bench
+cd rust-glm5 && cargo bench
+cd rust-kimi25 && cargo bench
+cd rust-minimax25 && cargo bench
 ```
 
 ### 清理构建
 
 ```bash
+# 清理 C 项目
 cd qwen35 && make clean
 cd minimax25 && make clean
 cd glm5 && make clean
 cd kimi25 && make clean
+
+# 清理 Rust 项目
+cd rust-ds20code && cargo clean
+cd rust-glm5 && cargo clean
+cd rust-kimi25 && cargo clean
+cd rust-minimax25 && cargo clean
 ```
 
 ---
 
 ## 依赖
 
+### C 项目依赖
+
 - C99 标准库
 - 数学库 (`-lm`)
 - pthread 库 (`-lpthread`)
 - GCC 或 Clang 编译器
 - Make 构建工具 (可选)
+
+### Rust 项目依赖
+
+- Rust 1.70+ (推荐最新稳定版)
+- Cargo 构建工具
+- 主要依赖库：
+  - `rayon` - 并行处理
+  - `parking_lot` - 高性能锁
+  - `dashmap` - 并发哈希表
+  - `ahash` - 高性能哈希
+  - `criterion` - 性能测试
 
 ---
 

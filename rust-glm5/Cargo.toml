@@ -1,0 +1,37 @@
+[package]
+name = "rust-glm5"
+version = "0.1.0"
+edition = "2021"
+authors = ["Vector Database Team"]
+description = "High-performance vector database with SIMD optimization"
+license = "MIT"
+keywords = ["vector", "database", "simd", "search"]
+categories = ["database", "science"]
+
+[dependencies]
+rayon = "1.10"
+parking_lot = "0.12"
+dashmap = "5.5"
+smallvec = "1.13"
+
+[dev-dependencies]
+criterion = "0.5"
+rand = "0.8"
+
+[features]
+default = ["simd"]
+simd = []
+
+[[bench]]
+name = "vector_db_bench"
+harness = false
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+target-cpu = "native"
+
+[profile.bench]
+opt-level = 3
+lto = true
