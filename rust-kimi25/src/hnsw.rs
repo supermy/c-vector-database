@@ -278,8 +278,8 @@ impl HnswIndex {
 
     fn select_neighbors(
         &self,
-        nodes: &Vec<Node>,
-        query: &[f32],
+        _nodes: &Vec<Node>,
+        _query: &[f32],
         candidates: &[Candidate],
         m: usize,
     ) -> Vec<NodeId> {
@@ -335,6 +335,51 @@ impl HnswIndex {
 
     pub fn get_id_by_external(&self, external_id: u64) -> Option<NodeId> {
         self.id_to_idx.read().get(&external_id).copied()
+    }
+
+    pub fn m(&self) -> usize {
+        self.m
+    }
+
+    pub fn ef_construction(&self) -> usize {
+        self.ef_construction
+    }
+
+    pub fn ef_search(&self) -> usize {
+        self.ef_search
+    }
+
+    pub fn serialize(&self) -> crate::persistence::SerializableHnsw {
+        let nodes = self.nodes.read();
+        let id_to_idx = self.id_to_idx.read();
+
+        let serializable_nodes: Vec<crate::persistence::SerializableNode> = nodes
+            .iter()
+            .map(|node| {
+                let neighbors: Vec<Vec<NodeId>> = node
+                    .neighbors
+                    .iter()
+                    .map(|n| n.read().clone())
+                    .collect();
+
+                crate::persistence::SerializableNode {
+                    id: node.id,
+                    external_id: node.external_id,
+                    vector: node.vector.clone(),
+                    level: node.level,
+                    neighbors,
+                }
+            })
+            .collect();
+
+        let id_to_idx_vec: Vec<(u64, NodeId)> = id_to_idx.iter().map(|(&k, &v)| (k, v)).collect();
+
+        crate::persistence::SerializableHnsw {
+            nodes: serializable_nodes,
+            id_to_idx: id_to_idx_vec,
+            entry_point: self.entry_point.load(std::sync::atomic::Ordering::SeqCst),
+            max_level: self.max_level.load(std::sync::atomic::Ordering::SeqCst),
+        }
     }
 }
 

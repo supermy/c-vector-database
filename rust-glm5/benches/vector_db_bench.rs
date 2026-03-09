@@ -3,6 +3,7 @@ use rand::{Rng, SeedableRng};
 use rand::rngs::StdRng;
 
 use rust_glm5::{VectorDB, DistanceMetric};
+use std::fs;
 
 fn generate_random_vector(dim: usize, rng: &mut StdRng) -> Vec<f32> {
     (0..dim).map(|_| rng.gen::<f32>()).collect()
@@ -23,6 +24,32 @@ fn bench_insert(c: &mut Criterion) {
                     let vector = generate_random_vector(dim, &mut rng);
                     db.insert(i as u64, &vector, None).unwrap();
                 }
+            });
+        });
+    }
+    
+    group.finish();
+}
+
+fn bench_insert_batch(c: &mut Criterion) {
+    let mut group = c.benchmark_group("insert_batch");
+    
+    for size in [100, 1_000, 10_000].iter() {
+        let dim = 128;
+        let mut rng = StdRng::seed_from_u64(42);
+        
+        let entries: Vec<(u64, Vec<f32>, Option<Vec<u8>>)> = (0..*size)
+            .map(|i| {
+                let vector = generate_random_vector(dim, &mut rng);
+                (i as u64, vector, None)
+            })
+            .collect();
+        
+        group.throughput(Throughput::Elements(*size as u64));
+        group.bench_with_input(BenchmarkId::new("batch", size), size, |b, _| {
+            b.iter(|| {
+                let db = VectorDB::new(dim, DistanceMetric::Cosine);
+                db.insert_batch(entries.clone()).unwrap();
             });
         });
     }
@@ -164,6 +191,53 @@ fn bench_batch_search(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_persistence(c: &mut Criterion) {
+    let mut group = c.benchmark_group("persistence");
+    
+    let temp_path = std::env::temp_dir().join("bench_vdb_persistence.bin");
+    let dim = 128;
+    
+    for size in [100, 1_000, 10_000].iter() {
+        let db = VectorDB::new(dim, DistanceMetric::Cosine);
+        let mut rng = StdRng::seed_from_u64(42);
+        
+        for i in 0..*size {
+            let vector = generate_random_vector(dim, &mut rng);
+            db.insert(i as u64, &vector, Some(vec![1, 2, 3])).unwrap();
+        }
+        
+        group.throughput(Throughput::Elements(*size as u64));
+        
+        group.bench_with_input(BenchmarkId::new("save_file", size), size, |b, _| {
+            b.iter(|| {
+                db.save(&temp_path).unwrap();
+            });
+        });
+        
+        group.bench_with_input(BenchmarkId::new("load_file", size), size, |b, _| {
+            b.iter(|| {
+                let _db = VectorDB::load(&temp_path).unwrap();
+            });
+        });
+        
+        group.bench_with_input(BenchmarkId::new("save_bytes", size), size, |b, _| {
+            b.iter(|| {
+                let _bytes = db.save_to_bytes().unwrap();
+            });
+        });
+        
+        let bytes = db.save_to_bytes().unwrap();
+        group.bench_with_input(BenchmarkId::new("load_bytes", size), size, |b, _| {
+            b.iter(|| {
+                let _db = VectorDB::load_from_bytes(&bytes).unwrap();
+            });
+        });
+    }
+    
+    fs::remove_file(&temp_path).ok();
+    group.finish();
+}
+
 fn bench_concurrent_operations(c: &mut Criterion) {
     let mut group = c.benchmark_group("concurrent");
     
@@ -177,7 +251,7 @@ fn bench_concurrent_operations(c: &mut Criterion) {
         db.insert(i as u64, &vector, None).unwrap();
     }
     
-    let queries: Vec<Vec<f32>> = (0..100)
+    let _queries: Vec<Vec<f32>> = (0..100)
         .map(|_| generate_random_vector(dim, &mut rng))
         .collect();
     
@@ -219,11 +293,13 @@ fn bench_concurrent_operations(c: &mut Criterion) {
 criterion_group!(
     benches,
     bench_insert,
+    bench_insert_batch,
     bench_search,
     bench_search_k_values,
     bench_distance_metrics,
     bench_dimensions,
     bench_batch_search,
+    bench_persistence,
     bench_concurrent_operations,
 );
 criterion_main!(benches);

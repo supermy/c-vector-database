@@ -1,6 +1,6 @@
 use std::fmt;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum DistanceMetric {
     #[default]
     Cosine,
@@ -18,28 +18,50 @@ impl fmt::Display for DistanceMetric {
     }
 }
 
-#[inline]
+#[inline(always)]
 pub fn dot_product(a: &[f32], b: &[f32]) -> f32 {
     let mut sum = 0.0f32;
-    for i in 0..a.len() {
-        sum += a[i] * b[i];
+    let len = a.len();
+    
+    let mut i = 0;
+    while i + 4 <= len {
+        sum += a[i] * b[i] + a[i+1] * b[i+1] + a[i+2] * b[i+2] + a[i+3] * b[i+3];
+        i += 4;
     }
+    
+    while i < len {
+        sum += a[i] * b[i];
+        i += 1;
+    }
+    
     sum
 }
 
-#[inline]
+#[inline(always)]
 pub fn euclidean_distance(a: &[f32], b: &[f32]) -> f32 {
-    let sum: f32 = a.iter()
-        .zip(b.iter())
-        .map(|(x, y)| {
-            let diff = x - y;
-            diff * diff
-        })
-        .sum();
+    let mut sum = 0.0f32;
+    let len = a.len();
+    
+    let mut i = 0;
+    while i + 4 <= len {
+        let d0 = a[i] - b[i];
+        let d1 = a[i+1] - b[i+1];
+        let d2 = a[i+2] - b[i+2];
+        let d3 = a[i+3] - b[i+3];
+        sum += d0 * d0 + d1 * d1 + d2 * d2 + d3 * d3;
+        i += 4;
+    }
+    
+    while i < len {
+        let d = a[i] - b[i];
+        sum += d * d;
+        i += 1;
+    }
+    
     sum.sqrt()
 }
 
-#[inline]
+#[inline(always)]
 pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     let dot = dot_product(a, b);
     let norm_a = magnitude(a);
@@ -52,22 +74,22 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     dot / (norm_a * norm_b)
 }
 
-#[inline]
+#[inline(always)]
 pub fn cosine_distance(a: &[f32], b: &[f32]) -> f32 {
     1.0 - cosine_similarity(a, b)
 }
 
-#[inline]
+#[inline(always)]
 pub fn dot_product_distance(a: &[f32], b: &[f32]) -> f32 {
     -dot_product(a, b)
 }
 
-#[inline]
+#[inline(always)]
 pub fn magnitude(v: &[f32]) -> f32 {
     dot_product(v, v).sqrt()
 }
 
-#[inline]
+#[inline(always)]
 pub fn normalize(v: &mut [f32]) {
     let mag = magnitude(v);
     if mag > 1e-10 {
@@ -78,7 +100,7 @@ pub fn normalize(v: &mut [f32]) {
     }
 }
 
-#[inline]
+#[inline(always)]
 pub fn compute_distance(a: &[f32], b: &[f32], metric: DistanceMetric) -> f32 {
     match metric {
         DistanceMetric::Cosine => cosine_distance(a, b),

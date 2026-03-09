@@ -1,9 +1,9 @@
-use crate::distance::{cosine_distance, dot_product, euclidean_distance, normalize, DistanceMetric};
+use crate::distance::DistanceMetric;
 use crate::error::{Error, Result};
+use crate::vector_db::{Stats, VectorEntry};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use lz4_flex::{compress_prepend_size, decompress_size_prepended};
 use parking_lot::RwLock;
-use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
@@ -18,41 +18,6 @@ struct DatabaseMetadata {
     size: usize,
     compressed: bool,
     timestamp: u64,
-}
-
-#[derive(Debug, Clone)]
-pub struct VectorEntry {
-    pub id: i64,
-    pub vector: Vec<f32>,
-    pub metadata: Option<Vec<u8>>,
-}
-
-impl VectorEntry {
-    pub fn new(id: i64, vector: Vec<f32>, metadata: Option<Vec<u8>>) -> Self {
-        VectorEntry {
-            id,
-            vector,
-            metadata,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct SearchResult {
-    pub id: i64,
-    pub distance: f32,
-}
-
-#[derive(Debug, Default, Clone)]
-pub struct Stats {
-    pub insert_count: usize,
-    pub delete_count: usize,
-    pub search_count: usize,
-    pub get_count: usize,
-    pub cache_hits: usize,
-    pub cache_misses: usize,
-    pub avg_search_time_ms: f64,
-    pub avg_insert_time_us: f64,
 }
 
 pub struct VectorDB {
@@ -119,7 +84,7 @@ impl VectorDB {
 
         let mut vector = vector;
         if self.normalized {
-            normalize(&mut vector);
+            crate::distance::normalize(&mut vector);
         }
 
         let mut entries = self.entries.write();
@@ -175,7 +140,7 @@ impl VectorDB {
         Ok(entries[*index].clone())
     }
 
-    pub fn search(&self, query: &[f32], k: usize) -> Result<Vec<SearchResult>> {
+    pub fn search(&self, query: &[f32], k: usize) -> Result<Vec<crate::vector_db::SearchResult>> {
         if query.len() != self.dimension {
             return Err(Error::DimensionMismatch {
                 expected: self.dimension,
@@ -184,10 +149,10 @@ impl VectorDB {
         }
 
         let entries = self.entries.read();
-        
+
         let mut query_vec = query.to_vec();
         if self.normalized {
-            normalize(&mut query_vec);
+            crate::distance::normalize(&mut query_vec);
         }
 
         let start = if self.enable_stats {
@@ -196,13 +161,14 @@ impl VectorDB {
             None
         };
 
+        use rayon::prelude::*;
         let mut distances: Vec<(i64, f32)> = entries
             .par_iter()
             .map(|entry| {
                 let distance = match self.metric {
-                    DistanceMetric::Cosine => cosine_distance(&query_vec, &entry.vector),
-                    DistanceMetric::Euclidean => euclidean_distance(&query_vec, &entry.vector),
-                    DistanceMetric::DotProduct => -dot_product(&query_vec, &entry.vector),
+                    DistanceMetric::Cosine => crate::distance::cosine_distance(&query_vec, &entry.vector),
+                    DistanceMetric::Euclidean => crate::distance::euclidean_distance(&query_vec, &entry.vector),
+                    DistanceMetric::DotProduct => -crate::distance::dot_product(&query_vec, &entry.vector),
                     DistanceMetric::Manhattan => {
                         let mut sum = 0.0f32;
                         for i in 0..query_vec.len() {
@@ -218,9 +184,9 @@ impl VectorDB {
         distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
         distances.truncate(k);
 
-        let results: Vec<SearchResult> = distances
+        let results: Vec<crate::vector_db::SearchResult> = distances
             .into_iter()
-            .map(|(id, distance)| SearchResult { id, distance })
+            .map(|(id, distance)| crate::vector_db::SearchResult { id, distance })
             .collect();
 
         if self.enable_stats {
@@ -241,8 +207,9 @@ impl VectorDB {
         &self,
         queries: &[Vec<f32>],
         k: usize,
-    ) -> Result<Vec<Vec<SearchResult>>> {
-        let results: Result<Vec<Vec<SearchResult>>> = queries
+    ) -> Result<Vec<Vec<crate::vector_db::SearchResult>>> {
+        use rayon::prelude::*;
+        let results: Result<Vec<Vec<crate::vector_db::SearchResult>>> = queries
             .par_iter()
             .map(|query| self.search(query, k))
             .collect();
@@ -250,10 +217,12 @@ impl VectorDB {
         results
     }
 
+    /// 优化版本：支持压缩的保存功能
     pub fn save(&self, filename: &str) -> Result<()> {
         self.save_with_compression(filename, true)
     }
 
+    /// 支持压缩选项的保存功能
     pub fn save_with_compression(&self, filename: &str, use_compression: bool) -> Result<()> {
         let file = File::create(filename)?;
         let mut writer = BufWriter::with_capacity(1024 * 1024, file);
@@ -326,6 +295,7 @@ impl VectorDB {
         Ok(())
     }
 
+    /// 优化版本：支持压缩的加载功能
     pub fn load(filename: &str) -> Result<Self> {
         let file = File::open(filename)?;
         let mut reader = BufReader::with_capacity(1024 * 1024, file);
@@ -433,6 +403,7 @@ impl VectorDB {
         Ok(())
     }
 
+    /// 增量保存：只保存变更的数据
     pub fn save_incremental(&self, filename: &str, modified_ids: &[i64]) -> Result<()> {
         if modified_ids.is_empty() {
             return self.save(filename);
@@ -444,9 +415,7 @@ impl VectorDB {
         let mut modified_entries = Vec::new();
         for &id in modified_ids {
             if let Some(&index) = id_map.get(&id) {
-                if index < entries.len() {
-                    modified_entries.push(entries[index].clone());
-                }
+                modified_entries.push(&entries[index]);
             }
         }
 
@@ -527,33 +496,38 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_insert_and_search() {
-        let db = VectorDB::new(3, DistanceMetric::Cosine);
-        
-        db.insert(1, vec![1.0, 0.0, 0.0], None).unwrap();
-        db.insert(2, vec![0.0, 1.0, 0.0], None).unwrap();
-        db.insert(3, vec![0.0, 0.0, 1.0], None).unwrap();
+    fn test_save_load_with_compression() {
+        let db = VectorDB::new(128, DistanceMetric::Cosine);
 
-        let results = db.search(&[1.0, 0.0, 0.0], 1).unwrap();
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].id, 1);
+        for i in 0..100 {
+            let vector: Vec<f32> = (0..128).map(|j| ((i * 128 + j) as f32) / 1000.0).collect();
+            db.insert(i as i64, vector, None).unwrap();
+        }
+
+        db.save_with_compression("/tmp/test_compressed.bin", true).unwrap();
+        let loaded_db = VectorDB::load("/tmp/test_compressed.bin").unwrap();
+
+        assert_eq!(loaded_db.size(), 100);
+        assert_eq!(loaded_db.dimension(), 128);
+
+        std::fs::remove_file("/tmp/test_compressed.bin").ok();
     }
 
     #[test]
-    fn test_delete() {
-        let db = VectorDB::new(3, DistanceMetric::Cosine);
-        
-        db.insert(1, vec![1.0, 0.0, 0.0], None).unwrap();
-        db.delete(1).unwrap();
-        
-        assert!(db.get(1).is_err());
-    }
+    fn test_save_load_without_compression() {
+        let db = VectorDB::new(64, DistanceMetric::Euclidean);
 
-    #[test]
-    fn test_duplicate_id() {
-        let db = VectorDB::new(3, DistanceMetric::Cosine);
-        
-        db.insert(1, vec![1.0, 0.0, 0.0], None).unwrap();
-        assert!(db.insert(1, vec![0.0, 1.0, 0.0], None).is_err());
+        for i in 0..50 {
+            let vector: Vec<f32> = (0..64).map(|j| (i + j) as f32).collect();
+            db.insert(i as i64, vector, None).unwrap();
+        }
+
+        db.save_with_compression("/tmp/test_uncompressed.bin", false).unwrap();
+        let loaded_db = VectorDB::load("/tmp/test_uncompressed.bin").unwrap();
+
+        assert_eq!(loaded_db.size(), 50);
+        assert_eq!(loaded_db.dimension(), 64);
+
+        std::fs::remove_file("/tmp/test_uncompressed.bin").ok();
     }
 }

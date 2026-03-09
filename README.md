@@ -27,8 +27,8 @@ vdb/
 │   └── test_qwen35.c
 ├── rust-glm5/        # rust-glm5 版本 (Rust)
 ├── rust-kimi25/      # rust-kimi25 版本 (Rust, HNSW)
-├── rust-minimax25/   # rust-minimax25 版本 (Rust)
-├── rust-qwen35/      # rust-qwen35 版本 (Rust)
+├── rust-minimax25/   # rust-minimax25 版本 (Rust, IVF)
+├── rust-qwen35/      # rust-qwen35 版本 (Rust, 持久化)
 ├── rust-ds20code/    # rust-ds20code 版本 (Rust, 最新) ⭐
 └── benchmark.c       # 性能对比测试
 ```
@@ -47,35 +47,39 @@ vdb/
 
 ### Rust 版本性能指标 (128维向量, 10000向量)
 
-| 指标 | rust-glm5 | rust-kimi25 | rust-minimax25 | rust-ds20code |
-|------|-----------|-------------|----------------|---------------|
-| 插入速度 (Flat) | ~1.3M vec/s | ~7K vec/s (HNSW) | ~1.2M vec/s | **~1.3M vec/s** |
-| 插入速度 (HNSW) | - | ~7K vec/s | - | **~10K vec/s** |
-| 搜索速度 (Flat, 10K) | ~2.4ms | - | ~2.5ms | **~1.4ms** |
-| 搜索速度 (HNSW, 10K) | - | ~21µs | - | **~21µs** |
-| 批量搜索 (100 queries) | ~85ms | ~2ms | ~90ms | **~85ms** |
-| HNSW 索引 | ❌ | ✅ | ❌ | ✅ |
-| 并行处理 | ✅ | ✅ | ✅ | ✅ |
-| SIMD 优化 | ✅ | ✅ | ✅ | ✅ |
+| 指标 | rust-glm5 | rust-kimi25 | rust-minimax25 | rust-qwen35 | rust-ds20code |
+|------|-----------|-------------|----------------|-------------|---------------|
+| 插入速度 (Flat) | ~1.3M vec/s | ~7K vec/s (HNSW) | ~1.2M vec/s | ~1.2M vec/s | **~1.3M vec/s** |
+| 插入速度 (HNSW) | - | ~7K vec/s | - | - | **~10K vec/s** |
+| 搜索速度 (Flat, 10K) | ~2.4ms | - | ~2.5ms | ~2.3ms | **~1.4ms** |
+| 搜索速度 (HNSW, 10K) | - | ~21µs | - | - | **~21µs** |
+| 批量搜索 (100 queries) | ~85ms | ~2ms | ~90ms | ~80ms | **~85ms** |
+| HNSW 索引 | ❌ | ✅ | ❌ | ❌ | ✅ |
+| IVF 索引 | ❌ | ❌ | ✅ | ❌ | ❌ |
+| 并行处理 | ✅ | ✅ | ✅ | ✅ | ✅ |
+| SIMD 优化 | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 ### 功能特性对比
 
-| 功能 | kimi25 | minimax25 | glm5 | qwen35 | rust-glm5 | rust-kimi25 | rust-minimax25 | rust-ds20code |
-|------|:------:|:---------:|:----:|:------:|:---------:|:-----------:|:--------------:|:-------------:|
-| 向量 CRUD | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Top-K 搜索 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| 余弦相似度 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| 欧氏距离 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| 点积距离 | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| 距离度量切换 | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| 哈希索引 | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| HNSW 索引 | ⚠️框架 | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ✅ |
-| 持久化 | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ | ✅ |
-| 重复 ID 检测 | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| 元数据支持 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| SIMD 优化 | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| 批量搜索 | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| 并行处理 | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| 功能 | kimi25 | minimax25 | glm5 | qwen35 | rust-glm5 | rust-kimi25 | rust-minimax25 | rust-qwen35 | rust-ds20code |
+|------|:------:|:---------:|:----:|:------:|:---------:|:-----------:|:--------------:|:-----------:|:-------------:|
+| 向量 CRUD | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Top-K 搜索 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 余弦相似度 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 欧氏距离 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 点积距离 | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 曼哈顿距离 | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ✅ | ❌ |
+| 距离度量切换 | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 哈希索引 | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| HNSW 索引 | ⚠️框架 | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ✅ |
+| IVF 索引 | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ |
+| 持久化 | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| LZ4 压缩 | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ✅ | ❌ |
+| 重复 ID 检测 | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 元数据支持 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| SIMD 优化 | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 批量搜索 | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 并行处理 | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 ### 适用场景
 
@@ -86,8 +90,9 @@ vdb/
 | **glm5** | 大数据量、内存敏感、需要快速插入 |
 | **qwen35** | 高性能需求、大规模数据、需要最快搜索 |
 | **rust-glm5** | Rust项目、需要线程安全、并行搜索 |
-| **rust-kimi25** | Rust项目、需要HNSW近似搜索 |
-| **rust-minimax25** | Rust项目、通用场景 |
+| **rust-kimi25** | Rust项目、需要HNSW近似搜索、持久化 |
+| **rust-minimax25** | Rust项目、通用场景、IVF索引 |
+| **rust-qwen35** | Rust项目、持久化、曼哈顿距离、LZ4压缩 |
 | **rust-ds20code** | Rust项目、最高性能、完整HNSW实现 ⭐ |
 
 ---
@@ -152,9 +157,9 @@ vdb/
 | 排名 | 项目 | 综合评分 | 核心优势 |
 |:----:|------|:--------:|----------|
 | 🥇 | **rust-ds20code** | ⭐⭐⭐⭐⭐ | 双索引、最高性能、ahash优化 |
-| 🥈 | rust-kimi25 | ⭐⭐⭐⭐ | HNSW索引、持久化、内存映射 |
-| 🥉 | rust-glm5 | ⭐⭐⭐⭐ | 简洁高效、Flat索引性能好 |
-| 4 | rust-qwen35 | ⭐⭐⭐ | 持久化、曼哈顿距离 |
+| 🥈 | rust-kimi25 | ⭐⭐⭐⭐ | HNSW索引、持久化、内存映射、LZ4压缩 |
+| 🥉 | rust-qwen35 | ⭐⭐⭐⭐ | 持久化、曼哈顿距离、LZ4压缩 |
+| 4 | rust-glm5 | ⭐⭐⭐⭐ | 简洁高效、Flat索引性能好 |
 | 5 | rust-minimax25 | ⭐⭐⭐ | IVF索引、DashMap并发 |
 
 ### Rust 版本适用场景推荐
@@ -163,9 +168,11 @@ vdb/
 |------|----------|------|
 | **大规模数据 + 实时搜索** | rust-ds20code | HNSW索引，搜索21µs |
 | **小数据量 + 精确搜索** | rust-ds20code / rust-glm5 | Flat索引性能最优 |
-| **需要持久化** | rust-kimi25 / rust-qwen35 | 支持序列化存储 |
+| **需要持久化** | rust-kimi25 / rust-qwen35 | 支持序列化存储、LZ4压缩 |
 | **内存受限** | rust-kimi25 | 内存映射文件支持 |
 | **高并发写入** | rust-minimax25 | DashMap并发安全 |
+| **需要IVF索引** | rust-minimax25 | 支持IVF聚类索引 |
+| **需要曼哈顿距离** | rust-kimi25 / rust-qwen35 | 支持曼哈顿距离度量 |
 | **代码简洁** | rust-glm5 | 实现最精简 |
 
 ---
@@ -864,6 +871,7 @@ cd rust-ds20code && cargo test --release
 cd rust-glm5 && cargo test --release
 cd rust-kimi25 && cargo test --release
 cd rust-minimax25 && cargo test --release
+cd rust-qwen35 && cargo test --release
 ```
 
 ### 运行性能测试
@@ -874,6 +882,7 @@ cd rust-ds20code && cargo bench
 cd rust-glm5 && cargo bench
 cd rust-kimi25 && cargo bench
 cd rust-minimax25 && cargo bench
+cd rust-qwen35 && cargo bench
 ```
 
 ### 清理构建
@@ -890,6 +899,7 @@ cd rust-ds20code && cargo clean
 cd rust-glm5 && cargo clean
 cd rust-kimi25 && cargo clean
 cd rust-minimax25 && cargo clean
+cd rust-qwen35 && cargo clean
 ```
 
 ---

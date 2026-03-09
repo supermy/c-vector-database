@@ -1,6 +1,7 @@
 use std::fmt;
+use serde::{Serialize, Deserialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DistanceMetric {
     Cosine,
     Euclidean,

@@ -32,3 +32,9 @@ impl std::error::Error for Error {
         None
     }
 }
+
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Self {
+        Error::SerializationError(format!("IO error: {}", err))
+    }
+}

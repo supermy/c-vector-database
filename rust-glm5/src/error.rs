@@ -7,6 +7,11 @@ pub enum Error {
     InvalidDimension { expected: usize, got: usize },
     DuplicateId(u64),
     NotFound(u64),
+    IoError(String),
+    SerializationError(String),
+    InvalidFileFormat(String),
+    VersionMismatch { expected: u32, got: u32 },
+    CorruptedData(String),
 }
 
 impl fmt::Display for Error {
@@ -17,12 +22,27 @@ impl fmt::Display for Error {
             }
             Self::DuplicateId(id) => write!(f, "Duplicate id: {}", id),
             Self::NotFound(id) => write!(f, "Id {} not found", id),
+            Self::IoError(msg) => write!(f, "IO error: {}", msg),
+            Self::SerializationError(msg) => write!(f, "Serialization error: {}", msg),
+            Self::InvalidFileFormat(msg) => write!(f, "Invalid file format: {}", msg),
+            Self::VersionMismatch { expected, got } => {
+                write!(f, "Version mismatch: expected {}, got {}", expected, got)
+            }
+            Self::CorruptedData(msg) => write!(f, "Corrupted data: {}", msg),
         }
     }
 }
 
-impl std::error::Error for Error {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        None
+impl std::error::Error for Error {}
+
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Self {
+        Error::IoError(err.to_string())
+    }
+}
+
+impl From<bincode::Error> for Error {
+    fn from(err: bincode::Error) -> Self {
+        Error::SerializationError(err.to_string())
     }
 }

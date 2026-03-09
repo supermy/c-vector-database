@@ -1,7 +1,10 @@
 use std::sync::Arc;
+use std::fs::File;
+use std::io::{Read, Write, BufWriter};
 use parking_lot::RwLock;
 use dashmap::DashMap;
 use smallvec::SmallVec;
+use serde::{Serialize, Deserialize};
 
 use crate::distance::{self, DistanceMetric};
 use crate::error::{Error, Result};
@@ -9,7 +12,7 @@ use crate::error::{Error, Result};
 const DEFAULT_CAPACITY: usize = 1024;
 const DEFAULT_CLUSTERS: usize = 32;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VectorEntry {
     pub id: u64,
     pub vector: Vec<f32>,
@@ -391,6 +394,94 @@ impl VectorDB {
         println!("  Search:  {}", self.stats.search_count);
         println!("  Get:     {}", self.stats.get_count);
         println!("======================================");
+    }
+
+    pub fn save(&self, path: &str) -> Result<()> {
+        use serde::Serialize;
+        
+        let entries = self.entries.read();
+        
+        #[derive(Serialize)]
+        struct DbData<'a> {
+            dimension: u32,
+            metric: &'a DistanceMetric,
+            use_index: bool,
+            ivf_built: bool,
+            num_clusters: usize,
+            cluster_centers: &'a Option<Vec<Vec<f32>>>,
+            clusters: &'a Option<Vec<Vec<usize>>>,
+            entries: &'a [VectorEntry],
+        }
+        
+        let clusters_ref: Option<Vec<Vec<usize>>> = self.clusters.as_ref().map(|c| {
+            c.iter().map(|s| s.to_vec()).collect()
+        });
+        
+        let data = DbData {
+            dimension: self.dimension,
+            metric: &self.metric,
+            use_index: self.use_index,
+            ivf_built: self.ivf_built,
+            num_clusters: self.num_clusters,
+            cluster_centers: &self.cluster_centers,
+            clusters: &clusters_ref,
+            entries: &entries,
+        };
+        
+        let json = serde_json::to_string_pretty(&data)?;
+        
+        let file = File::create(path)?;
+        let mut writer = BufWriter::new(file);
+        writer.write_all(json.as_bytes())?;
+        
+        Ok(())
+    }
+
+    pub fn load(path: &str) -> Result<Self> {
+        use serde::Deserialize;
+        
+        #[derive(Deserialize)]
+        struct DbData {
+            dimension: u32,
+            metric: DistanceMetric,
+            use_index: bool,
+            ivf_built: bool,
+            num_clusters: usize,
+            cluster_centers: Option<Vec<Vec<f32>>>,
+            clusters: Option<Vec<Vec<usize>>>,
+            entries: Vec<VectorEntry>,
+        }
+        
+        let mut file = File::open(path)?;
+        let mut contents = String::new();
+        file.read_to_string(&mut contents)?;
+        
+        let data: DbData = serde_json::from_str(&contents)?;
+        
+        let clusters: Option<Vec<SmallVec<[usize; 64]>>> = data.clusters.map(|c| {
+            c.into_iter().map(|v| v.into()).collect()
+        });
+        
+        let count = data.entries.len();
+        let id_map = Arc::new(DashMap::with_capacity(count));
+        for (i, entry) in data.entries.iter().enumerate() {
+            id_map.insert(entry.id, i);
+        }
+        
+        let db = Self {
+            dimension: data.dimension,
+            entries: Arc::new(RwLock::new(data.entries)),
+            id_map,
+            metric: data.metric,
+            use_index: data.use_index,
+            ivf_built: data.ivf_built,
+            num_clusters: data.num_clusters,
+            cluster_centers: data.cluster_centers,
+            clusters,
+            stats: Stats::default(),
+        };
+        
+        Ok(db)
     }
 }
 

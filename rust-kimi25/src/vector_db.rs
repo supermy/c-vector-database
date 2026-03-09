@@ -304,6 +304,26 @@ impl VectorDB {
         let index_size = self.hnsw.len() * (std::mem::size_of::<NodeId>() * 32);
         entries_size + index_size
     }
+
+    pub fn hnsw_m(&self) -> usize {
+        self.hnsw.m()
+    }
+
+    pub fn hnsw_ef_construction(&self) -> usize {
+        self.hnsw.ef_construction()
+    }
+
+    pub fn hnsw_ef_search(&self) -> usize {
+        self.hnsw.ef_search()
+    }
+
+    pub fn serialize_hnsw(&self) -> crate::persistence::SerializableHnsw {
+        self.hnsw.serialize()
+    }
+
+    pub fn get_all_entries(&self) -> Vec<VectorEntry> {
+        self.entries.read().clone()
+    }
 }
 
 #[cfg(test)]

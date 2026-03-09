@@ -23,4 +23,16 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
+impl From<std::io::Error> for Error {
+    fn from(_: std::io::Error) -> Self {
+        Error::InvalidInput
+    }
+}
+
+impl From<serde_json::Error> for Error {
+    fn from(_: serde_json::Error) -> Self {
+        Error::InvalidInput
+    }
+}
+
 pub type Result<T> = std::result::Result<T, Error>;
