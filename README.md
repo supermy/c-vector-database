@@ -632,6 +632,206 @@ typedef enum {
 
 ---
 
+## rust-qwen35 版本 ⭐⭐ (推荐)
+
+### 特点
+
+- **高性能持久化**：LZ4压缩、增量保存、批量写入优化
+- **曼哈顿距离**：支持4种距离度量（余弦、欧氏、点积、曼哈顿）
+- **压缩存储**：LZ4压缩节省空间，支持压缩/未压缩模式切换
+- **增量保存**：只保存变更数据，22.6x加速
+- **并行处理**：使用 Rayon 实现并行搜索
+- **线程安全**：使用 parking_lot RwLock 实现细粒度锁
+- **完整测试**：包含单元测试和性能基准测试
+
+### 编译运行
+
+```bash
+cd rust-qwen35
+
+# 构建
+cargo build --release
+
+# 运行测试
+cargo test --release
+
+# 运行性能测试
+cargo bench
+```
+
+### API 示例
+
+```rust
+use rust_qwen35::{create_db, DistanceMetric, VectorDB};
+
+// 创建数据库
+let db = create_db(128, DistanceMetric::Cosine);
+
+// 插入向量
+let vector: Vec<f32> = vec![0.1; 128];
+db.insert(1, vector, None).unwrap();
+
+// 搜索最近邻
+let query: Vec<f32> = vec![0.1; 128];
+let results = db.search(&query, 10).unwrap();
+
+for result in results {
+    println!("ID: {}, Distance: {}", result.id, result.distance);
+}
+
+// 持久化 - 保存（默认压缩）
+db.save("database.bin").unwrap();
+
+// 持久化 - 从文件加载
+let db2 = VectorDB::load("database.bin").unwrap();
+
+// 增量保存（只保存变更的数据）
+let modified_ids = vec![1, 5, 10];
+db.save_incremental("checkpoint.bin", &modified_ids).unwrap();
+```
+
+### 持久化性能
+
+| 操作 | 数据量 | 耗时 | 说明 |
+|------|--------|------|------|
+| 压缩保存 | 10K向量 | 46ms | 节省1.7%空间 |
+| 未压缩保存 | 10K向量 | 42ms | 最快性能 |
+| 加载 | 10K向量 | 14ms | 693K vectors/s |
+| 增量保存 | 100向量 | 1ms | 22.6x加速 |
+
+### 距离度量类型
+
+```rust
+pub enum DistanceMetric {
+    Cosine,        // 余弦相似度（推荐用于文本嵌入）
+    Euclidean,     // 欧氏距离（推荐用于图像特征）
+    DotProduct,    // 点积（推荐用于推荐系统）
+    Manhattan,     // 曼哈顿距离（推荐用于稀疏向量）
+}
+```
+
+### 详细文档
+
+- [持久化功能说明](rust-qwen35/PERSISTENCE.md)
+- [持久化性能优化](rust-qwen35/PERSISTENCE_SUMMARY.md)
+- [性能优化报告](rust-qwen35/OPTIMIZATION_REPORT.md)
+
+### 为什么选择 rust-qwen35？
+
+1. **持久化优化**：LZ4压缩、增量保存、批量写入
+2. **多种距离度量**：支持曼哈顿距离，适用更多场景
+3. **灵活配置**：压缩/未压缩模式可切换
+4. **生产就绪**：完整的错误处理和测试覆盖
+
+---
+
+## rust-minimax25 版本
+
+### 特点
+
+- **IVF 索引**：倒排文件索引，支持近似最近邻搜索
+- **DashMap 并发**：高并发写入支持
+- **向量归一化**：余弦相似度优化
+- **持久化支持**：JSON格式保存/加载
+- **批量搜索**：支持多查询并行处理
+
+### 编译运行
+
+```bash
+cd rust-minimax25
+
+# 构建
+cargo build --release
+
+# 运行测试
+cargo test --release
+
+# 运行持久化示例
+cargo run --example persist_test
+```
+
+### API 示例
+
+```rust
+use rust_minimax25::VectorDB;
+
+// 创建数据库
+let mut db = VectorDB::new(128);
+
+// 插入向量
+db.insert(1, vec![0.1; 128], None).unwrap();
+
+// 构建 IVF 索引（加速搜索）
+db.build_ivf_index(32).unwrap();  // 32个聚类
+
+// 普通搜索
+let results = db.search(&query, 10);
+
+// IVF 索引搜索（更快）
+let ivf_results = db.search_ivf(&query, 10, 3);  // nprobe=3
+
+// 并行批量搜索
+let batch_results = db.par_batch_search(&queries, 10);
+
+// 持久化
+db.save("database.json").unwrap();
+let loaded_db = VectorDB::load("database.json").unwrap();
+```
+
+### 持久化示例
+
+```rust
+use rust_minimax25::VectorDB;
+
+// 创建并填充数据库
+let mut db = VectorDB::new(4);
+for i in 0..100 {
+    db.insert(i, vec![i as f32, i as f32 * 0.5, i as f32 * 0.25, i as f32 * 0.1], None).unwrap();
+}
+
+// 构建 IVF 索引
+db.build_ivf_index(10).unwrap();
+
+// 保存到文件
+db.save("/path/to/database.json").unwrap();
+
+// 从文件加载
+let loaded_db = VectorDB::load("/path/to/database.json").unwrap();
+
+// 验证搜索功能
+let results = loaded_db.search(&[50.0, 25.0, 12.5, 5.0], 5);
+for r in &results {
+    println!("id: {}, distance: {:.4}", r.id, r.distance);
+}
+
+// IVF 搜索
+let ivf_results = loaded_db.search_ivf(&[50.0, 25.0, 12.5, 5.0], 5, 3);
+```
+
+### IVF 索引说明
+
+IVF (Inverted File Index) 是一种聚类索引方法：
+
+1. **构建阶段**：将向量聚类到多个桶中
+2. **搜索阶段**：只搜索最近的几个桶（nprobe参数）
+3. **性能权衡**：nprobe越大精度越高，速度越慢
+
+| nprobe | 精度 | 速度 |
+|--------|------|------|
+| 1 | 70-80% | 最快 |
+| 3 | 85-95% | 快 |
+| 10 | 95-99% | 中等 |
+| 全部 | 100% | 慢 |
+
+### 为什么选择 rust-minimax25？
+
+1. **IVF 索引**：适合大规模数据的近似搜索
+2. **高并发写入**：DashMap 提供优秀的并发性能
+3. **灵活搜索**：支持普通搜索和IVF索引搜索
+4. **持久化**：支持JSON格式的保存和加载
+
+---
+
 ## rust-ds20code 版本 ⭐⭐⭐ (最新推荐)
 
 ### 特点
