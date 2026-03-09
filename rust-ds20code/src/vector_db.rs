@@ -2,6 +2,9 @@ use std::sync::Arc;
 use parking_lot::RwLock;
 use rayon::prelude::*;
 use std::cmp::Ordering;
+use std::fs::File;
+use std::path::Path;
+use std::io::{Read, Write};
 
 use crate::distance::{DistanceMetric, cosine_distance, euclidean_distance, dot_product_distance};
 use crate::hnsw::HnswIndex;
@@ -9,7 +12,7 @@ use crate::error::{Error, Result};
 
 pub type Vector = Vec<f32>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct VectorEntry {
     pub id: u64,
     pub vector: Vector,
@@ -23,7 +26,7 @@ pub struct SearchResult {
     pub metadata: Option<Vec<u8>>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Stats {
     pub insert_count: u64,
     pub delete_count: u64,
@@ -33,7 +36,16 @@ pub struct Stats {
     pub avg_search_ms: f64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct SerializableDatabase {
+    dimension: usize,
+    metric: DistanceMetric,
+    index_type: IndexType,
+    entries: Vec<VectorEntry>,
+    stats: Stats,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum IndexType {
     Flat,
     Hnsw,
@@ -298,6 +310,67 @@ impl VectorDB {
         println!("  Get:     {}", stats.get_count);
         println!("========================================\n");
     }
+
+    pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<()> {
+        let serializable = SerializableDatabase {
+            dimension: self.dimension,
+            metric: self.metric,
+            index_type: self.index_type,
+            entries: self.entries.read().clone(),
+            stats: self.stats.read().clone(),
+        };
+
+        let file = File::create(path)
+            .map_err(|e| Error::IoError(e.to_string()))?;
+
+        let writer = std::io::BufWriter::new(file);
+        bincode::serialize_into(writer, &serializable)
+            .map_err(|e| Error::IoError(e.to_string()))?;
+
+        Ok(())
+    }
+
+    pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
+        let file = File::open(path)
+            .map_err(|e| Error::IoError(e.to_string()))?;
+
+        let reader = std::io::BufReader::new(file);
+        let serializable: SerializableDatabase = bincode::deserialize_from(reader)
+            .map_err(|e| Error::IoError(e.to_string()))?;
+
+        let hnsw_index = if serializable.index_type == IndexType::Hnsw {
+            let hnsw = Arc::new(HnswIndex::new(
+                serializable.dimension,
+                serializable.metric,
+            ));
+
+            for entry in &serializable.entries {
+                hnsw.insert(entry.id, entry.vector.clone());
+            }
+
+            Some(hnsw)
+        } else {
+            None
+        };
+
+        let id_index = ahash::AHashMap::from_iter(
+            serializable.entries
+                .iter()
+                .enumerate()
+                .map(|(idx, entry)| (entry.id, idx))
+        );
+
+        Ok(Self {
+            entries: RwLock::new(serializable.entries),
+            id_index: RwLock::new(id_index),
+            dimension: serializable.dimension,
+            metric: serializable.metric,
+            stats: RwLock::new(serializable.stats),
+            enable_stats: true,
+            index_type: serializable.index_type,
+            hnsw_index,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -378,5 +451,59 @@ mod tests {
         let results = db.search(&query, 2).unwrap();
         
         assert!(!results.is_empty());
+    }
+    
+    #[test]
+    fn test_persistence_flat() {
+        let temp_path = std::env::temp_dir().join("test_db_flat.bin");
+        
+        {
+            let db = VectorDB::new(3, DistanceMetric::Cosine);
+            db.insert(1, &[1.0, 0.0, 0.0], None).unwrap();
+            db.insert(2, &[0.0, 1.0, 0.0], None).unwrap();
+            db.insert(3, &[0.0, 0.0, 1.0], Some(b"metadata".to_vec())).unwrap();
+            db.save(&temp_path).unwrap();
+        }
+        
+        {
+            let db = VectorDB::load(&temp_path).unwrap();
+            assert_eq!(db.len(), 3);
+            
+            let entry = db.get(3).unwrap();
+            assert_eq!(entry.id, 3);
+            assert_eq!(entry.metadata, Some(b"metadata".to_vec()));
+            
+            let query = vec![1.0, 0.0, 0.0];
+            let results = db.search(&query, 1).unwrap();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0].id, 1);
+        }
+        
+        std::fs::remove_file(&temp_path).unwrap();
+    }
+    
+    #[test]
+    fn test_persistence_hnsw() {
+        let temp_path = std::env::temp_dir().join("test_db_hnsw.bin");
+        
+        {
+            let db = VectorDB::with_hnsw(3, DistanceMetric::Cosine);
+            db.insert(1, &[1.0, 0.0, 0.0], None).unwrap();
+            db.insert(2, &[0.0, 1.0, 0.0], None).unwrap();
+            db.insert(3, &[0.0, 0.0, 1.0], None).unwrap();
+            db.save(&temp_path).unwrap();
+        }
+        
+        {
+            let db = VectorDB::load(&temp_path).unwrap();
+            assert_eq!(db.len(), 3);
+            assert_eq!(db.index_type(), IndexType::Hnsw);
+            
+            let query = vec![1.0, 0.0, 0.0];
+            let results = db.search(&query, 1).unwrap();
+            assert!(!results.is_empty());
+        }
+        
+        std::fs::remove_file(&temp_path).unwrap();
     }
 }

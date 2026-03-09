@@ -70,7 +70,7 @@ vdb/
 | 距离度量切换 | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | 哈希索引 | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | HNSW 索引 | ⚠️框架 | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ✅ |
-| 持久化 | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| 持久化 | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ | ✅ |
 | 重复 ID 检测 | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | 元数据支持 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | SIMD 优化 | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
@@ -102,7 +102,8 @@ vdb/
 | **parking_lot** (锁) | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **dashmap** (并发Map) | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **ahash** (高性能哈希) | ✅ | ❌ | ❌ | ❌ | ❌ |
-| **serde** (序列化) | ❌ | ❌ | ✅ | ✅ | ✅ |
+| **serde** (序列化) | ✅ | ❌ | ✅ | ✅ | ✅ |
+| **bincode** (二进制序列化) | ✅ | ❌ | ❌ | ❌ | ❌ |
 | **memmap2** (内存映射) | ❌ | ❌ | ✅ | ❌ | ❌ |
 | **rand** (随机数) | ✅ | ❌ | ✅ | ✅ | ✅ |
 
@@ -636,6 +637,7 @@ typedef enum {
 - **线程安全**：使用 parking_lot RwLock 实现细粒度锁
 - **高性能哈希**：使用 ahash 实现快速 ID 查找
 - **灵活配置**：支持自定义 HNSW 参数 (M, ef_construction, ef_search)
+- **持久化支持**：使用 Bincode 序列化，支持快速保存和加载
 
 ### 编译运行
 
@@ -679,6 +681,12 @@ for result in results {
 let queries: Vec<&[f32]> = vec![&query1, &query2];
 let batch_results = db.batch_search(&queries, 10).unwrap();
 
+// 持久化 - 保存到文件
+db.save("database.bin").unwrap();
+
+// 持久化 - 从文件加载
+let db2 = VectorDB::load("database.bin").unwrap();
+
 // 获取统计信息
 db.print_stats();
 ```
@@ -699,6 +707,10 @@ fn get(&self, id: u64) -> Option<VectorEntry>;
 fn search(&self, query: &[f32], k: usize) -> Result<Vec<SearchResult>>;
 fn search_with_threshold(&self, query: &[f32], k: usize, threshold: f32) -> Result<Vec<SearchResult>>;
 fn batch_search(&self, queries: &[&[f32]], k: usize) -> Result<Vec<Vec<SearchResult>>>;
+
+// 持久化
+fn save<P: AsRef<Path>>(&self, path: P) -> Result<()>;  // 保存到文件
+VectorDB::load<P: AsRef<Path>>(path: P) -> Result<Self>;  // 从文件加载
 
 // 统计信息
 fn stats(&self) -> Stats;
