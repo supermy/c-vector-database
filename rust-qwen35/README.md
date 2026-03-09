@@ -77,13 +77,21 @@ rust-qwen35/
 ├── src/
 │   ├── lib.rs              # 库入口
 │   ├── distance.rs         # 距离计算模块
-│   ├── error.rs            # 错误处理
-│   └── vector_db.rs        # 核心数据库实现
+│   ├── error.rs           # 错误处理
+│   └── vector_db.rs       # 核心数据库实现
 ├── benches/
-│   └── vector_db_bench.rs  # 性能基准测试
+│   └── vector_db_bench.rs # 性能基准测试
 └── examples/
-    └── perf_test.rs        # 性能测试示例
+    ├── perf_test.rs        # 性能测试示例
+    ├── persistence_test.rs # 持久化测试示例
+    └── optimized_persistence.rs # 优化持久化示例
 ```
+
+## 详细文档
+
+- [持久化功能说明](PERSISTENCE.md)
+- [持久化性能优化](PERSISTENCE_SUMMARY.md)
+- [性能优化报告](OPTIMIZATION_REPORT.md)
 
 ## 使用方法
 
@@ -124,6 +132,8 @@ cargo run --release --example perf_test
 3. **内存优化**：使用 SmallVec 减少小向量内存占用
 4. **批量操作**：支持批量搜索提高吞吐量
 5. **持久化**：支持数据库状态的保存和加载
+6. **LZ4压缩**：支持压缩存储，节省磁盘空间
+7. **增量保存**：支持只保存变更数据，大幅减少保存时间
 
 ## 与 C 语言版本对比
 
