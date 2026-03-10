@@ -108,7 +108,7 @@ vdb/
 | **dashmap** (并发Map) | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **ahash** (高性能哈希) | ✅ | ❌ | ❌ | ❌ | ❌ |
 | **serde** (序列化) | ✅ | ❌ | ✅ | ✅ | ✅ |
-| **bincode** (二进制序列化) | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **bincode** (二进制序列化) | ✅ | ❌ | ✅ | ❌ | ❌ |
 | **memmap2** (内存映射) | ❌ | ❌ | ✅ | ❌ | ❌ |
 | **rand** (随机数) | ✅ | ❌ | ✅ | ✅ | ✅ |
 
@@ -722,6 +722,151 @@ pub enum DistanceMetric {
 2. **多种距离度量**：支持曼哈顿距离，适用更多场景
 3. **灵活配置**：压缩/未压缩模式可切换
 4. **生产就绪**：完整的错误处理和测试覆盖
+
+---
+
+## rust-kimi25 版本 ⭐⭐ (推荐)
+
+### 特点
+
+- **HNSW 索引**：完整的 HNSW 近似最近邻搜索实现
+- **高性能持久化**：LZ4 压缩、内存映射、校验和验证
+- **HNSW 索引持久化**：完整保存/恢复 HNSW 索引结构
+- **内存映射**：支持 mmap 加载，提升 ~38% 性能
+- **LZ4 压缩**：快速压缩，节省存储空间
+- **并行处理**：使用 Rayon 实现并行搜索
+- **线程安全**：使用 parking_lot RwLock 实现细粒度锁
+- **曼哈顿距离**：支持 4 种距离度量
+
+### 编译运行
+
+```bash
+cd rust-kimi25
+
+# 构建
+cargo build --release
+
+# 运行测试
+cargo test --release
+
+# 运行性能测试
+cargo bench
+```
+
+### API 示例
+
+```rust
+use rust_kimi25::{VectorDB, DistanceMetric, Persistence, PersistenceConfig, CompressionType};
+
+// 创建数据库
+let db = VectorDB::new(128, DistanceMetric::Cosine);
+
+// 插入向量
+let vector: Vec<f32> = vec![0.1; 128];
+db.insert(1, &vector, None).unwrap();
+
+// HNSW 搜索
+let query: Vec<f32> = vec![0.1; 128];
+let results = db.search(&query, 10).unwrap();
+
+for result in results {
+    println!("ID: {}, Distance: {}", result.id, result.distance);
+}
+
+// 持久化 - 保存（使用默认配置）
+let config = PersistenceConfig::default();
+let stats = Persistence::save(&db, "database.bin", &config).unwrap();
+
+// 持久化 - 加载
+let (loaded_db, load_stats) = Persistence::load("database.bin", &config).unwrap();
+```
+
+### 持久化性能
+
+| 操作 | 数据量 | 耗时 | 说明 |
+|------|--------|------|------|
+| LZ4 压缩保存 | 1K 向量 | ~6.2 ms | 包含 HNSW 索引 |
+| LZ4 压缩保存 | 10K 向量 | ~106 ms | 包含 HNSW 索引 |
+| 内存映射加载 | 1K 向量 | ~5 ms | 37.5% 提升 |
+| 内存映射加载 | 10K 向量 | ~52 ms | 38.8% 提升 |
+| 缓冲加载 | 10K 向量 | ~85 ms | 传统方式 |
+| 往返（保存+加载） | 10K 向量 | ~160 ms | 62.5K vec/s |
+
+### 持久化配置
+
+```rust
+// 默认配置（推荐）
+let config = PersistenceConfig {
+    compression: CompressionType::Lz4,  // LZ4 压缩
+    use_mmap: true,                     // 内存映射
+    verify_checksum: false,             // 不验证校验和
+};
+
+// 最快加载
+let config = PersistenceConfig {
+    compression: CompressionType::Lz4,
+    use_mmap: true,
+    verify_checksum: false,
+};
+
+// 数据安全优先
+let config = PersistenceConfig {
+    compression: CompressionType::Lz4,
+    use_mmap: false,
+    verify_checksum: true,
+};
+```
+
+### HNSW 索引持久化
+
+```rust
+// HNSW 索引完整保存
+let db = VectorDB::with_hnsw_params(
+    128,
+    DistanceMetric::Cosine,
+    16,   // M
+    200,  // ef_construction
+    100,  // ef_search
+);
+
+// 插入数据并构建索引
+for i in 0..10000 {
+    let vector = generate_vector(i);
+    db.insert(i as u64, &vector, None).unwrap();
+}
+
+// 保存（包含完整 HNSW 索引）
+Persistence::save(&db, "hnsw_index.bin", &config).unwrap();
+
+// 加载（恢复完整 HNSW 索引）
+let (loaded_db, _) = Persistence::load("hnsw_index.bin", &config).unwrap();
+
+// 索引立即可用，无需重建
+let results = loaded_db.search(&query, 10).unwrap();
+```
+
+### 获取文件信息
+
+```rust
+// 不加载整个文件，只读取头部信息
+let header = Persistence::get_file_info("database.bin").unwrap();
+println!("维度: {}", header.dimension);
+println!("向量数量: {}", header.entry_count);
+println!("HNSW M: {}", header.hnsw_m);
+println!("HNSW ef_construction: {}", header.hnsw_ef_construction);
+```
+
+### 详细文档
+
+- [持久化功能总结](rust-kimi25/PERSISTENCE_SUMMARY.md)
+
+### 为什么选择 rust-kimi25？
+
+1. **HNSW 索引持久化**：完整保存/恢复 HNSW 索引，无需重建
+2. **内存映射加载**：mmap 技术提升 38% 加载性能
+3. **LZ4 快速压缩**：极快的压缩/解压缩速度
+4. **校验和验证**：可选的数据完整性验证
+5. **生产就绪**：完整的错误处理和测试覆盖
 
 ---
 
