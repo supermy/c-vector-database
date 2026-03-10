@@ -73,7 +73,7 @@ vdb/
 | 哈希索引 | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | HNSW 索引 | ⚠️框架 | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ✅ |
 | IVF 索引 | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ |
-| 持久化 | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| 持久化 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | LZ4 压缩 | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ✅ | ❌ |
 | 重复 ID 检测 | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | 元数据支持 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
@@ -107,9 +107,9 @@ vdb/
 | **parking_lot** (锁) | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **dashmap** (并发Map) | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **ahash** (高性能哈希) | ✅ | ❌ | ❌ | ❌ | ❌ |
-| **serde** (序列化) | ✅ | ❌ | ✅ | ✅ | ✅ |
-| **bincode** (二进制序列化) | ✅ | ❌ | ✅ | ❌ | ❌ |
-| **memmap2** (内存映射) | ❌ | ❌ | ✅ | ❌ | ❌ |
+| **serde** (序列化) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **bincode** (二进制序列化) | ✅ | ✅ | ✅ | ❌ | ❌ |
+| **memmap2** (内存映射) | ❌ | ✅ | ✅ | ❌ | ❌ |
 | **rand** (随机数) | ✅ | ❌ | ✅ | ✅ | ✅ |
 
 ### 索引类型对比
@@ -629,6 +629,123 @@ typedef enum {
 3. **功能完整**：支持所有核心功能和高级特性
 4. **可扩展性**：模块化设计，便于添加新功能
 5. **生产就绪**：完整的测试覆盖和错误处理
+
+---
+
+## rust-glm5 版本
+
+### 特点
+
+- **简洁高效**：代码精简，Flat 索引性能优异
+- **完整持久化**：支持文件保存/加载、字节序列化
+- **dirty 标志**：自动追踪数据变更状态
+- **统计信息持久化**：保存/恢复操作统计
+- **并行处理**：使用 Rayon 实现并行搜索
+- **线程安全**：使用 parking_lot RwLock 实现细粒度锁
+- **内存优化**：支持 compact() 和 memory_usage()
+
+### 编译运行
+
+```bash
+cd rust-glm5
+
+# 构建
+cargo build --release
+
+# 运行测试
+cargo test --release
+
+# 运行性能测试
+cargo bench
+```
+
+### API 示例
+
+```rust
+use rust_glm5::{VectorDB, DistanceMetric};
+
+// 创建数据库
+let db = VectorDB::new(128, DistanceMetric::Cosine);
+
+// 插入向量
+let vector: Vec<f32> = vec![0.1; 128];
+db.insert(1, &vector, None).unwrap();
+
+// 搜索最近邻
+let query: Vec<f32> = vec![0.1; 128];
+let results = db.search(&query, 10).unwrap();
+
+for result in results {
+    println!("ID: {}, Distance: {}", result.id, result.distance);
+}
+
+// 持久化 - 保存到文件
+db.save("database.bin").unwrap();
+
+// 持久化 - 从文件加载
+let loaded_db = VectorDB::load("database.bin").unwrap();
+
+// 持久化 - 保存到字节数组
+let bytes = db.save_to_bytes().unwrap();
+let loaded_db = VectorDB::load_from_bytes(&bytes).unwrap();
+```
+
+### 持久化功能
+
+| 方法 | 说明 |
+|------|------|
+| `save(path)` | 保存到文件 |
+| `load(path)` | 从文件加载 |
+| `save_to_bytes()` | 保存到字节数组 |
+| `load_from_bytes(bytes)` | 从字节数组加载 |
+
+### 持久化特性
+
+```rust
+// dirty 标志 - 自动追踪数据变更
+db.insert(1, &vector, None).unwrap();
+assert!(db.is_dirty());  // true
+
+db.save("database.bin").unwrap();
+assert!(!db.is_dirty());  // false - 保存后重置
+
+// 统计信息持久化
+let stats = db.stats();
+println!("插入次数: {}", stats.insert_count);
+println!("搜索次数: {}", stats.search_count);
+println!("平均搜索时间: {:.3} ms", stats.avg_search_ms);
+
+// 内存使用统计
+let mem = db.memory_usage();
+println!("内存使用: {} bytes", mem);
+```
+
+### 文件格式
+
+```
+[Header: 64 bytes]
+  ├── 魔数 (VDB2)
+  ├── 版本 (2)
+  ├── 维度
+  ├── 距离度量
+  ├── 向量数量
+  └── 标志位
+
+[向量条目]
+  ├── 长度 (8 bytes)
+  └── 序列化数据 (ID + 向量 + 元数据)
+
+[统计信息]
+  └── 序列化的 Stats 结构
+```
+
+### 为什么选择 rust-glm5？
+
+1. **代码简洁**：实现精简，易于理解和维护
+2. **Flat 索引性能好**：适合小规模数据的精确搜索
+3. **字节序列化**：支持内存序列化，适合网络传输
+4. **统计追踪**：完整的操作统计和 dirty 标志
+5. **内存优化**：支持内存压缩和使用统计
 
 ---
 
